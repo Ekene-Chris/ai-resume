@@ -42,7 +42,7 @@ class DocumentIntelligenceService:
             }
             
             # Define the API endpoint URL
-            api_url = f"{self.endpoint}/documentintelligence/documentModels/{self.model_id}:analyze?api-version=2023-07-31"
+            api_url = f"{self.endpoint}/documentintelligence/documentModels/{self.model_id}:analyze?api-version=2024-11-30"
             
             # Submit the document for analysis
             async with aiohttp.ClientSession() as session:

@@ -6,8 +6,8 @@ import json
 import logging
 import aiohttp
 import re
-from app.utils.file_utils import download_file, extract_text_from_pdf_bytes, extract_text_from_docx_bytes
-from app.utils.prompt_templates import get_system_prompt, get_user_prompt, format_role_requirements
+from app.file_utils import download_file, extract_text_from_pdf_bytes, extract_text_from_docx_bytes
+from app.prompt_templates import get_system_prompt, get_user_prompt, format_role_requirements
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -45,9 +45,7 @@ async def download_cv_content(cv_url: str) -> str:
             return content.decode('utf-8', errors='replace')
     except Exception as e:
         logger.error(f"Error downloading CV content: {str(e)}")
-        return f"[Error extracting CV content: {str(e)}]"# app/core/azure_openai.p
-
-# These functions are now in app/utils/file_utils.py
+        return f"[Error extracting CV content: {str(e)}]"
 
 async def analyze_cv_with_openai(
     cv_url: str,
@@ -141,8 +139,6 @@ def extract_json(text: str) -> str:
     
     # If no triple backticks, assume the entire text is JSON
     return text
-
-# This function is now in app/utils/prompt_templates.py
 
 def create_fallback_analysis(target_role: str, experience_level: str) -> Dict[str, Any]:
     """
