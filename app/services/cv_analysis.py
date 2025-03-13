@@ -1,14 +1,20 @@
 # app/services/cv_analysis.py
 from app.core.azure_blob import get_blob_url
 from app.core.cosmos_db import cosmos_service
+from app.core.azure_openai import analyze_cv_with_openai
+from app.core.document_intelligence import document_intelligence
+from app.services.email_service import send_analysis_completion_email
+from app.services.role_analyzers import get_role_analyzer
+from app.config import settings
 from typing import Dict, Any
 import json
 import os
 from datetime import datetime
 import asyncio
+import logging
 
-# Import the Azure OpenAI service (uncomment in production)
-# from app.core.azure_openai import analyze_cv_with_openai
+# Configure logging
+logger = logging.getLogger(__name__)
 
 async def analyze_cv_background(
     analysis_id: str,
@@ -22,86 +28,85 @@ async def analyze_cv_background(
     Background task to analyze a CV.
     
     1. Get the CV from Azure Blob Storage
-    2. Call Azure OpenAI to analyze it
-    3. Process the results
-    4. Update the status and save the results to Cosmos DB
-    
-    For now, this is a placeholder that simulates analysis by waiting.
+    2. Extract structured data with Document Intelligence
+    3. Create role-specific analysis payload
+    4. Call Azure OpenAI to analyze it
+    5. Process the results
+    6. Update the status and save the results to Cosmos DB
     """
     try:
-        print(f"Starting analysis for {analysis_id}")
+        logger.info(f"Starting analysis for {analysis_id}")
         
         # Update status to processing
-        await update_analysis_status(analysis_id, "processing", 0.1, 25)
+        await update_analysis_status(analysis_id, "processing", 0.1, 45)
         
         # Get the blob URL
         blob_url = await get_blob_url(blob_name)
+        logger.info(f"Got blob URL: {blob_url}")
         
-        # Simulate processing time (would be actual API calls in production)
-        await asyncio.sleep(2)
-        await update_analysis_status(analysis_id, "processing", 0.3, 20)
+        # Extract structured data using Document Intelligence
+        logger.info(f"Extracting document data with Document Intelligence")
+        try:
+            resume_data = await document_intelligence.analyze_document(blob_url)
+            logger.info(f"Successfully extracted structured data from resume")
+        except Exception as doc_error:
+            logger.error(f"Error extracting document data: {str(doc_error)}")
+            # If Document Intelligence fails, create a minimal resume_data structure
+            resume_data = {
+                "raw_text": f"Error extracting document data: {str(doc_error)}",
+                "contact_info": {"name": name, "email": email},
+                "skills": [],
+                "work_experience": [],
+                "education": [],
+                "sections": {}
+            }
         
-        # Get role requirements
-        role_data = await get_role_requirements(target_role, experience_level)
+        # Update status
+        await update_analysis_status(analysis_id, "processing", 0.3, 30)
         
-        # Simulate more processing
-        await asyncio.sleep(2)
-        await update_analysis_status(analysis_id, "processing", 0.6, 10)
+        # Get the appropriate role analyzer
+        role_analyzer = get_role_analyzer(target_role, experience_level)
         
-        # Simulate final processing
-        await asyncio.sleep(2)
-        await update_analysis_status(analysis_id, "processing", 0.9, 3)
+        # Create a structured analysis payload
+        analysis_payload = role_analyzer.create_analysis_payload(resume_data)
         
-        # In production, call OpenAI to analyze the CV
-        # analysis_result = await analyze_cv_with_openai(blob_url, target_role, experience_level, role_data)
+        # Get the role-specific prompts
+        system_prompt = role_analyzer.get_system_prompt()
+        user_prompt = role_analyzer.get_user_prompt(resume_data)
         
-        # Create dummy analysis results (in a real app, this would come from OpenAI)
-        analysis_result = {
-            "overall_score": 75,
-            "categories": [
-                {
-                    "name": "Technical Skills",
-                    "score": 80,
-                    "feedback": "Strong cloud skills demonstrated, but lacking specific DevOps tools.",
-                    "suggestions": [
-                        "Add specific CI/CD tools you've used (e.g., Jenkins, GitHub Actions)",
-                        "Include more infrastructure-as-code experience (Terraform, CloudFormation)",
-                        "Highlight container orchestration experience (Kubernetes, Docker Swarm)"
-                    ]
-                },
-                {
-                    "name": "Experience Descriptions",
-                    "score": 65,
-                    "feedback": "Job descriptions focus too much on responsibilities rather than achievements.",
-                    "suggestions": [
-                        "Quantify your impact with specific metrics",
-                        "Highlight problems you solved rather than just tasks performed",
-                        "Use action verbs and showcase leadership even in technical roles"
-                    ]
-                },
-                {
-                    "name": "Overall Presentation",
-                    "score": 70,
-                    "feedback": "Resume is well-structured but could be more focused for the target role.",
-                    "suggestions": [
-                        "Tailor your summary section specifically to DevOps/Cloud roles",
-                        "Move most relevant experience to the top",
-                        "Consider a skills section that clearly maps to job requirements"
-                    ]
-                }
-            ],
-            "keyword_analysis": {
-                "present": ["AWS", "Docker", "Linux", "Git", "Monitoring"],
-                "missing": ["Kubernetes", "Terraform", "CI/CD", "SRE practices"],
-                "recommended": ["Infrastructure as Code", "GitOps", "Observability", "Automation"]
-            },
-            "matrix_alignment": {
-                "current_level": "mid",
-                "target_level": target_role,
-                "gap_areas": ["System Design", "Team Leadership", "Advanced Cloud Architecture"]
-            },
-            "summary": "Your resume shows good foundational DevOps skills but needs more emphasis on automation, infrastructure as code, and measurable achievements to truly stand out for senior roles."
-        }
+        # Update status
+        await update_analysis_status(analysis_id, "processing", 0.5, 25)
+        
+        # Call OpenAI to analyze the CV
+        logger.info(f"Calling Azure OpenAI for analysis")
+        try:
+            analysis_result = await analyze_cv_with_openai(
+                cv_url=blob_url,
+                name=name,
+                email=email, 
+                target_role=target_role,
+                experience_level=experience_level,
+                role_requirements=role_analyzer.role_requirements,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt
+            )
+        except Exception as ai_error:
+            logger.error(f"Error in OpenAI analysis: {str(ai_error)}")
+            analysis_result = create_fallback_analysis(target_role, experience_level)
+        
+        # Update status
+        await update_analysis_status(analysis_id, "processing", 0.8, 10)
+        
+        # Enrich the result with additional metadata
+        analysis_result["completed_at"] = datetime.utcnow().isoformat()
+        analysis_result["role"] = target_role
+        analysis_result["experience_level"] = experience_level
+        
+        # Store the structured resume data for reference
+        analysis_result["structured_resume"] = resume_data
+        
+        # Store the analysis payload
+        analysis_result["analysis_payload"] = analysis_payload
         
         # Update the analysis record with results
         update_data = {
@@ -114,10 +119,26 @@ async def analyze_cv_background(
         # Save the analysis results to Cosmos DB
         await cosmos_service.update_analysis_record(analysis_id, update_data)
             
-        print(f"Analysis completed for {analysis_id}")
+        logger.info(f"Analysis completed and saved for {analysis_id}")
+        
+        # Send email notification if enabled
+        if settings.EMAIL_ENABLED:
+            overall_score = analysis_result.get("overall_score", 0)
+            email_sent = await send_analysis_completion_email(
+                to_email=email,
+                name=name,
+                analysis_id=analysis_id,
+                target_role=target_role,
+                overall_score=overall_score
+            )
+            
+            if email_sent:
+                logger.info(f"Email notification sent to {email}")
+            else:
+                logger.warning(f"Failed to send email notification to {email}")
         
     except Exception as e:
-        print(f"Error analyzing CV {analysis_id}: {str(e)}")
+        logger.error(f"Error analyzing CV {analysis_id}: {str(e)}")
         
         # Update status to failed
         try:
@@ -128,7 +149,7 @@ async def analyze_cv_background(
             }
             await cosmos_service.update_analysis_record(analysis_id, error_update)
         except Exception as inner_e:
-            print(f"Error updating failure status: {str(inner_e)}")
+            logger.error(f"Error updating failure status: {str(inner_e)}")
 
 async def update_analysis_status(
     analysis_id: str, 
@@ -148,65 +169,44 @@ async def update_analysis_status(
         await cosmos_service.update_analysis_record(analysis_id, update_data)
             
     except Exception as e:
-        print(f"Error updating analysis status: {str(e)}")
+        logger.error(f"Error updating analysis status: {str(e)}")
 
-async def get_role_requirements(target_role: str, experience_level: str) -> Dict[str, Any]:
+def create_fallback_analysis(target_role: str, experience_level: str) -> Dict[str, Any]:
     """
-    Get the requirements for a target role and experience level.
-    
-    This would typically load from a database or files with role definitions.
-    For now, we'll return dummy data.
+    Create a fallback analysis in case the OpenAI API fails
     """
-    role_data = {
-        "devops_engineer": {
-            "junior": {
-                "core_skills": ["Linux", "Bash", "Git", "Docker", "CI/CD basics"],
-                "preferred_skills": ["Cloud basics (AWS/Azure)", "Python", "Monitoring tools"],
-                "responsibilities": [
-                    "Support CI/CD pipelines",
-                    "Basic infrastructure maintenance",
-                    "Assist with deployments"
-                ]
+    return {
+        "overall_score": 50,
+        "categories": [
+            {
+                "name": "Technical Skills",
+                "score": 50,
+                "feedback": "Unable to perform detailed analysis. Please review the CV manually.",
+                "suggestions": ["Ensure skills match the core requirements for the role."]
             },
-            "mid": {
-                "core_skills": ["AWS/Azure", "Kubernetes", "Terraform/IaC", "CI/CD pipelines", "Monitoring"],
-                "preferred_skills": ["Python/Go", "Security practices", "Database management"],
-                "responsibilities": [
-                    "Design and implement CI/CD pipelines",
-                    "Manage cloud infrastructure",
-                    "Implement monitoring and alerting",
-                    "Automate deployment processes"
-                ]
+            {
+                "name": "Experience",
+                "score": 50,
+                "feedback": "Unable to perform detailed analysis. Please review the CV manually.",
+                "suggestions": ["Focus on relevant experience for the target role."]
             },
-            "senior": {
-                "core_skills": ["Advanced Cloud Architecture", "Kubernetes at scale", "IaC best practices", "Security compliance"],
-                "preferred_skills": ["Cost optimization", "Multi-cloud", "SRE practices", "Team leadership"],
-                "responsibilities": [
-                    "Design resilient architectures",
-                    "Implement complex deployment strategies",
-                    "Lead infrastructure projects",
-                    "Mentor junior engineers",
-                    "Establish best practices"
-                ]
+            {
+                "name": "Overall Presentation",
+                "score": 50,
+                "feedback": "Unable to perform detailed analysis. Please review the CV manually.",
+                "suggestions": ["Ensure the CV is well-structured and tailored to the role."]
             }
+        ],
+        "keyword_analysis": {
+            "present": [],
+            "missing": [],
+            "recommended": ["Review manually to identify relevant keywords."]
         },
-        "cloud_architect": {
-            # Similar structure for other roles
-            "mid": {
-                "core_skills": ["Cloud platform expertise", "Solution design", "Security practices"],
-                "preferred_skills": ["Multi-cloud", "Cost management", "Performance optimization"],
-                "responsibilities": [
-                    "Design cloud solutions",
-                    "Implement best practices",
-                    "Optimize cloud resources",
-                    "Ensure security compliance"
-                ]
-            }
-        }
+        "matrix_alignment": {
+            "current_level": "unknown",
+            "target_level": experience_level,
+            "gap_areas": ["Unable to determine gaps automatically."]
+        },
+        "summary": "Automatic analysis failed. Please review the CV manually against the requirements for a " 
+                  f"{target_role} position at {experience_level} level."
     }
-    
-    # Get role data if it exists
-    role_info = role_data.get(target_role, {})
-    level_info = role_info.get(experience_level, {})
-    
-    return level_info

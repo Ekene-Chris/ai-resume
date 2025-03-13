@@ -21,12 +21,26 @@ class Settings(BaseSettings):
     AZURE_OPENAI_ENDPOINT: str
     AZURE_OPENAI_DEPLOYMENT_NAME: str
     
+    # Azure Document Intelligence settings
+    DOCUMENT_INTELLIGENCE_ENDPOINT: str = ""
+    DOCUMENT_INTELLIGENCE_KEY: str = ""
+    DOCUMENT_INTELLIGENCE_MODEL_ID: str = "prebuilt-document"  # or "prebuilt-layout" or "prebuilt-read"
+    
     # Azure Cosmos DB settings
     COSMOS_DB_ENDPOINT: str = ""
     COSMOS_DB_KEY: str = ""
     COSMOS_DB_DATABASE: str = "resume-analyzer"
     COSMOS_DB_ANALYSES_CONTAINER: str = "analyses"
     
+    # Application URLs
+    APP_FRONTEND_URL: str = "http://localhost:3000"  # Frontend URL for email links
+    
+    # Email service settings (optional)
+    EMAIL_ENABLED: bool = False
+    EMAIL_API_KEY: str = ""
+    EMAIL_API_ENDPOINT: str = ""
+    EMAIL_FROM_ADDRESS: str = "no-reply@resume-analyzer.com"
+
     # CORS settings
     CORS_ORIGINS: list[str] = ["*"]  # In production, specify your frontend domain
     

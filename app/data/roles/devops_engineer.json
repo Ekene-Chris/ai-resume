@@ -1,0 +1,91 @@
+{
+  "junior": {
+    "core_skills": [
+      "Linux/Unix",
+      "Basic Scripting (Bash/Python)",
+      "Git & Version Control",
+      "Basic CI/CD Concepts",
+      "Docker Basics",
+      "Cloud Basics (AWS/Azure/GCP)",
+      "Basic Monitoring",
+      "Infrastructure Basics"
+    ],
+    "preferred_skills": [
+      "Configuration Management Tools",
+      "Basic Kubernetes",
+      "Infrastructure as Code",
+      "Networking Fundamentals",
+      "Security Basics",
+      "Log Management"
+    ],
+    "responsibilities": [
+      "Assist with deployment processes",
+      "Help maintain CI/CD pipelines",
+      "Perform basic server administration tasks",
+      "Monitor system performance and availability",
+      "Document infrastructure and processes",
+      "Support development and operations teams"
+    ]
+  },
+  "mid": {
+    "core_skills": [
+      "Advanced Linux/Unix",
+      "Scripting & Automation",
+      "Container Orchestration (Kubernetes)",
+      "CI/CD Pipeline Design",
+      "Infrastructure as Code",
+      "Cloud Services & Architecture",
+      "Monitoring & Logging",
+      "Networking & Security"
+    ],
+    "preferred_skills": [
+      "Multi-cloud Deployments",
+      "Configuration Management",
+      "Database Administration",
+      "Performance Tuning",
+      "High Availability Design",
+      "Disaster Recovery",
+      "Cost Optimization"
+    ],
+    "responsibilities": [
+      "Design and implement CI/CD pipelines",
+      "Build and maintain containerized environments",
+      "Automate infrastructure provisioning",
+      "Implement monitoring and alerting solutions",
+      "Troubleshoot complex system issues",
+      "Improve system reliability and performance",
+      "Collaborate with development teams on best practices"
+    ]
+  },
+  "senior": {
+    "core_skills": [
+      "DevOps Architecture",
+      "Platform Engineering",
+      "Advanced Kubernetes & Container Orchestration",
+      "Advanced CI/CD & GitOps",
+      "Cloud-Native Architecture",
+      "SRE Practices",
+      "Security & Compliance",
+      "Performance Engineering"
+    ],
+    "preferred_skills": [
+      "Multi-cloud Strategy",
+      "Service Mesh",
+      "Serverless Architecture",
+      "Chaos Engineering",
+      "Advanced Monitoring & Observability",
+      "Mentorship & Leadership",
+      "Cost Management"
+    ],
+    "responsibilities": [
+      "Design resilient and scalable infrastructure",
+      "Establish DevOps best practices and standards",
+      "Lead implementation of complex DevOps solutions",
+      "Design disaster recovery and high availability solutions",
+      "Optimize cloud infrastructure and costs",
+      "Mentor junior engineers and collaborate with leadership",
+      "Drive automation and continuous improvement",
+      "Ensure security and compliance throughout the pipeline"
+    ]
+  }
+}

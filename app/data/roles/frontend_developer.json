@@ -1,0 +1,93 @@
+{
+  "junior": {
+    "core_skills": [
+      "HTML5",
+      "CSS3",
+      "JavaScript",
+      "Responsive Design",
+      "Basic React/Angular/Vue",
+      "Version Control (Git)",
+      "Browser Dev Tools",
+      "CSS Frameworks (Bootstrap/Tailwind)"
+    ],
+    "preferred_skills": [
+      "TypeScript",
+      "SASS/LESS",
+      "Basic Testing",
+      "Figma/Design Tools",
+      "Accessibility Knowledge",
+      "Basic Performance Optimization"
+    ],
+    "responsibilities": [
+      "Implement UI components following designs",
+      "Fix bugs and improve UI performance",
+      "Write clean, maintainable code",
+      "Collaborate with designers and backend developers",
+      "Test and debug across browsers"
+    ]
+  },
+  "mid": {
+    "core_skills": [
+      "Advanced JavaScript",
+      "React/Angular/Vue Proficiency",
+      "State Management",
+      "REST/GraphQL APIs",
+      "Jest/Testing Library",
+      "Performance Optimization",
+      "Responsive/Mobile Design",
+      "Webpack/Build Tools",
+      "TypeScript"
+    ],
+    "preferred_skills": [
+      "CI/CD",
+      "SSR/SSG",
+      "Advanced CSS",
+      "Animation",
+      "Design Systems",
+      "Cross-browser Compatibility",
+      "Web Accessibility (WCAG)",
+      "SEO Fundamentals"
+    ],
+    "responsibilities": [
+      "Architect frontend applications",
+      "Build reusable component libraries",
+      "Implement complex UI interactions",
+      "Optimize application performance",
+      "Mentor junior developers",
+      "Work closely with UX/UI designers",
+      "Integrate with backend APIs"
+    ]
+  },
+  "senior": {
+    "core_skills": [
+      "Frontend Architecture",
+      "Advanced Framework Knowledge",
+      "Performance Optimization",
+      "Scalable Applications",
+      "Testing Strategies",
+      "Technical Leadership",
+      "CI/CD",
+      "Security Best Practices"
+    ],
+    "preferred_skills": [
+      "Microfrontends",
+      "Design Systems",
+      "Advanced TypeScript",
+      "WebGL/Canvas",
+      "PWAs",
+      "Internationalization",
+      "Accessibility Expertise",
+      "Cross-platform Development"
+    ],
+    "responsibilities": [
+      "Design complex frontend architectures",
+      "Establish coding standards and best practices",
+      "Lead technical implementation of major features",
+      "Mentor and grow engineering teams",
+      "Evaluate and select technologies",
+      "Drive performance and scalability improvements",
+      "Collaborate with product and design teams",
+      "Make high-level technical decisions"
+    ]
+  }
+}

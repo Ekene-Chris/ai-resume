@@ -1,0 +1,97 @@
+{
+  "junior": {
+    "core_skills": [
+      "Python/JavaScript/Java/.NET",
+      "Basic API Development",
+      "SQL Fundamentals",
+      "Git Version Control",
+      "Basic Authentication",
+      "Data Validation",
+      "Basic Testing",
+      "HTTP/REST"
+    ],
+    "preferred_skills": [
+      "Node.js/Django/Spring/Express",
+      "NoSQL Databases",
+      "Docker Basics",
+      "CI/CD Fundamentals",
+      "Basic Cloud (AWS/Azure/GCP)",
+      "Agile Methodologies"
+    ],
+    "responsibilities": [
+      "Develop basic API endpoints",
+      "Implement database queries and operations",
+      "Debug and fix issues in code",
+      "Write unit tests for code",
+      "Document code and functionalities",
+      "Collaborate with frontend and other developers"
+    ]
+  },
+  "mid": {
+    "core_skills": [
+      "Advanced Language Proficiency",
+      "Database Design",
+      "API Architecture",
+      "Authentication/Authorization",
+      "Caching Strategies",
+      "Error Handling",
+      "Performance Optimization",
+      "Message Queues",
+      "Containerization",
+      "CI/CD"
+    ],
+    "preferred_skills": [
+      "Microservices",
+      "Cloud Services",
+      "Infrastructure as Code",
+      "Event-Driven Architecture",
+      "GraphQL",
+      "Monitoring Tools",
+      "Security Best Practices",
+      "Agile/Scrum"
+    ],
+    "responsibilities": [
+      "Design and implement complex APIs",
+      "Optimize database performance",
+      "Develop scalable backend services",
+      "Implement security best practices",
+      "Create comprehensive test suites",
+      "Review code and mentor junior developers",
+      "Deploy and monitor applications",
+      "Collaborate with cross-functional teams"
+    ]
+  },
+  "senior": {
+    "core_skills": [
+      "System Architecture",
+      "Scalability Patterns",
+      "Distributed Systems",
+      "Advanced Database Design",
+      "Performance Tuning",
+      "Security Architecture",
+      "Technical Leadership",
+      "DevOps Integration",
+      "API Gateway/Service Mesh"
+    ],
+    "preferred_skills": [
+      "Multiple Programming Paradigms",
+      "Cloud-Native Development",
+      "Serverless Architecture",
+      "Data Engineering",
+      "Chaos Engineering",
+      "SRE Practices",
+      "Technical Mentorship",
+      "System Design"
+    ],
+    "responsibilities": [
+      "Architect complex backend systems",
+      "Lead technical implementation of major features",
+      "Establish coding standards and best practices",
+      "Make key technology decisions",
+      "Design for performance, scalability, and reliability",
+      "Mentor and grow engineering teams",
+      "Collaborate with product and business stakeholders",
+      "Drive technical vision and innovation"
+    ]
+  }
+}
