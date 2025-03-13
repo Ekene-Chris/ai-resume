@@ -1,14 +1,15 @@
 # app/api/routes/cv.py
 from fastapi import APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks, Depends
 from fastapi.responses import JSONResponse
-from typing import Optional
+from typing import Optional, List
 from uuid import uuid4
 import json
 import os
 from datetime import datetime
 
 from app.core.azure_blob import upload_to_blob, get_blob_url
-from app.models.cv import CVUploadResponse, AnalysisStatusResponse
+from app.core.cosmos_db import cosmos_service
+from app.models.cv import CVUploadResponse, AnalysisStatusResponse, AnalysisResponse, AnalysisSummary
 from app.services.cv_analysis import analyze_cv_background
 
 router = APIRouter()
@@ -49,11 +50,9 @@ async def upload_cv(
         # Generate unique analysis ID
         analysis_id = str(uuid4())
         
-        # Store analysis metadata (in a real app, this would go to a database)
-        analysis_dir = "app/data/analyses"
-        os.makedirs(analysis_dir, exist_ok=True)
-        
+        # Store analysis metadata in Cosmos DB
         metadata = {
+            "id": analysis_id,  # Cosmos DB requires an 'id' field
             "analysis_id": analysis_id,
             "name": name,
             "email": email,
@@ -62,12 +61,13 @@ async def upload_cv(
             "original_filename": file.filename,
             "blob_name": blob_name,
             "status": "processing",
+            "progress": 0.1,
+            "estimated_time_remaining": 30,
             "created_at": datetime.utcnow().isoformat(),
             "updated_at": datetime.utcnow().isoformat()
         }
         
-        with open(f"{analysis_dir}/{analysis_id}.json", "w") as f:
-            json.dump(metadata, f, indent=2)
+        await cosmos_service.create_analysis_record(metadata)
         
         # Start background analysis task
         background_tasks.add_task(
@@ -105,24 +105,100 @@ async def get_analysis_status(analysis_id: str):
         The current status of the analysis
     """
     try:
-        # In a real app, this would query a database
-        analysis_file = f"app/data/analyses/{analysis_id}.json"
+        # Get the analysis record from Cosmos DB
+        analysis_record = await cosmos_service.get_analysis_record(analysis_id)
         
-        if not os.path.exists(analysis_file):
+        if not analysis_record:
             raise HTTPException(status_code=404, detail="Analysis not found")
-        
-        with open(analysis_file, "r") as f:
-            metadata = json.load(f)
         
         # Return status response
         return AnalysisStatusResponse(
             analysis_id=analysis_id,
-            status=metadata.get("status", "processing"),
-            progress=metadata.get("progress", 0.5),
-            estimated_time_remaining=metadata.get("estimated_time_remaining", 15)
+            status=analysis_record.get("status", "processing"),
+            progress=analysis_record.get("progress", 0.5),
+            estimated_time_remaining=analysis_record.get("estimated_time_remaining", 15)
         )
         
     except HTTPException as e:
         raise e
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching analysis status: {str(e)}")
+
+@router.get("/{analysis_id}", response_model=AnalysisResponse)
+async def get_analysis_results(analysis_id: str):
+    """
+    Get the complete results of a CV analysis.
+    
+    Args:
+        analysis_id: The unique ID of the analysis
+        
+    Returns:
+        The complete analysis results
+    """
+    try:
+        # Get the analysis record from Cosmos DB
+        analysis_record = await cosmos_service.get_analysis_record(analysis_id)
+        
+        if not analysis_record:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+            
+        if analysis_record.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="Analysis not yet completed")
+            
+        # Return the complete analysis response
+        results = analysis_record.get("results", {})
+        return AnalysisResponse(
+            analysis_id=analysis_id,
+            overall_score=results.get("overall_score", 0),
+            categories=results.get("categories", []),
+            keyword_analysis=results.get("keyword_analysis", {}),
+            matrix_alignment=results.get("matrix_alignment", {}),
+            summary=results.get("summary", ""),
+            completed_at=analysis_record.get("completed_at", "")
+        )
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching analysis results: {str(e)}")
+
+@router.get("/", response_model=List[AnalysisSummary])
+async def list_analyses():
+    """
+    List all CV analyses.
+    
+    Returns:
+        A list of all analyses with basic information
+    """
+    try:
+        # Query to get just the necessary fields
+        query = """
+        SELECT 
+            c.analysis_id, 
+            c.name, 
+            c.email, 
+            c.target_role, 
+            c.experience_level,
+            c.status,
+            c.created_at
+        FROM c
+        ORDER BY c.created_at DESC
+        """
+        
+        analyses = await cosmos_service.list_analyses(query)
+        
+        return [
+            AnalysisSummary(
+                analysis_id=item["analysis_id"],
+                name=item["name"],
+                email=item["email"],
+                target_role=item["target_role"],
+                experience_level=item["experience_level"],
+                status=item["status"],
+                created_at=item["created_at"]
+            )
+            for item in analyses
+        ]
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error listing analyses: {str(e)}")

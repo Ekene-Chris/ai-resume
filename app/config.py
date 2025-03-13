@@ -9,16 +9,23 @@ class Settings(BaseSettings):
     API_VERSION: str = "v1"
     
     # Azure Blob Storage settings
-    AZURE_STORAGE_CONNECTION_STRING: str
+    AZURE_STORAGE_ACCOUNT_NAME: str  # Add this new setting
     AZURE_STORAGE_CONTAINER_NAME: str = "cv-uploads"
+    
+    # Keep the connection string for backward compatibility
+    # This won't be used in the updated code
+    AZURE_STORAGE_CONNECTION_STRING: str = ""
     
     # Azure OpenAI settings
     AZURE_OPENAI_KEY: str
     AZURE_OPENAI_ENDPOINT: str
     AZURE_OPENAI_DEPLOYMENT_NAME: str
     
-    # Database settings (if needed later)
-    DATABASE_URL: str = ""
+    # Azure Cosmos DB settings
+    COSMOS_DB_ENDPOINT: str = ""
+    COSMOS_DB_KEY: str = ""
+    COSMOS_DB_DATABASE: str = "resume-analyzer"
+    COSMOS_DB_ANALYSES_CONTAINER: str = "analyses"
     
     # CORS settings
     CORS_ORIGINS: list[str] = ["*"]  # In production, specify your frontend domain

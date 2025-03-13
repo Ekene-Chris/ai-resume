@@ -1,13 +1,15 @@
 # app/services/cv_analysis.py
 from app.core.azure_blob import get_blob_url
+from app.core.cosmos_db import cosmos_service
 from typing import Dict, Any
 import json
 import os
 from datetime import datetime
 import asyncio
 
-# This is a placeholder for the actual Azure OpenAI analysis
-# In a real implementation, you would import and use the OpenAI module
+# Import the Azure OpenAI service (uncomment in production)
+# from app.core.azure_openai import analyze_cv_with_openai
+
 async def analyze_cv_background(
     analysis_id: str,
     blob_name: str,
@@ -19,11 +21,10 @@ async def analyze_cv_background(
     """
     Background task to analyze a CV.
     
-    In a real implementation, this would:
     1. Get the CV from Azure Blob Storage
     2. Call Azure OpenAI to analyze it
     3. Process the results
-    4. Update the status and save the results
+    4. Update the status and save the results to Cosmos DB
     
     For now, this is a placeholder that simulates analysis by waiting.
     """
@@ -50,6 +51,9 @@ async def analyze_cv_background(
         # Simulate final processing
         await asyncio.sleep(2)
         await update_analysis_status(analysis_id, "processing", 0.9, 3)
+        
+        # In production, call OpenAI to analyze the CV
+        # analysis_result = await analyze_cv_with_openai(blob_url, target_role, experience_level, role_data)
         
         # Create dummy analysis results (in a real app, this would come from OpenAI)
         analysis_result = {
@@ -96,26 +100,19 @@ async def analyze_cv_background(
                 "target_level": target_role,
                 "gap_areas": ["System Design", "Team Leadership", "Advanced Cloud Architecture"]
             },
-            "summary": "Your resume shows good foundational DevOps skills but needs more emphasis on automation, infrastructure as code, and measurable achievements to truly stand out for senior roles.",
+            "summary": "Your resume shows good foundational DevOps skills but needs more emphasis on automation, infrastructure as code, and measurable achievements to truly stand out for senior roles."
+        }
+        
+        # Update the analysis record with results
+        update_data = {
+            "status": "completed",
+            "results": analysis_result,
+            "updated_at": datetime.utcnow().isoformat(),
             "completed_at": datetime.utcnow().isoformat()
         }
         
-        # Save the analysis results
-        analysis_dir = "app/data/analyses"
-        
-        # Read existing metadata
-        metadata_file = f"{analysis_dir}/{analysis_id}.json"
-        with open(metadata_file, "r") as f:
-            metadata = json.load(f)
-        
-        # Update with analysis results and status
-        metadata["status"] = "completed"
-        metadata["results"] = analysis_result
-        metadata["updated_at"] = datetime.utcnow().isoformat()
-        metadata["completed_at"] = datetime.utcnow().isoformat()
-        
-        with open(metadata_file, "w") as f:
-            json.dump(metadata, f, indent=2)
+        # Save the analysis results to Cosmos DB
+        await cosmos_service.update_analysis_record(analysis_id, update_data)
             
         print(f"Analysis completed for {analysis_id}")
         
@@ -124,19 +121,12 @@ async def analyze_cv_background(
         
         # Update status to failed
         try:
-            analysis_dir = "app/data/analyses"
-            metadata_file = f"{analysis_dir}/{analysis_id}.json"
-            
-            if os.path.exists(metadata_file):
-                with open(metadata_file, "r") as f:
-                    metadata = json.load(f)
-                
-                metadata["status"] = "failed"
-                metadata["error"] = str(e)
-                metadata["updated_at"] = datetime.utcnow().isoformat()
-                
-                with open(metadata_file, "w") as f:
-                    json.dump(metadata, f, indent=2)
+            error_update = {
+                "status": "failed",
+                "error": str(e),
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            await cosmos_service.update_analysis_record(analysis_id, error_update)
         except Exception as inner_e:
             print(f"Error updating failure status: {str(inner_e)}")
 
@@ -146,21 +136,16 @@ async def update_analysis_status(
     progress: float, 
     estimated_time_remaining: int
 ):
-    """Update the status of an analysis in the metadata file"""
+    """Update the status of an analysis in Cosmos DB"""
     try:
-        analysis_dir = "app/data/analyses"
-        metadata_file = f"{analysis_dir}/{analysis_id}.json"
+        update_data = {
+            "status": status,
+            "progress": progress,
+            "estimated_time_remaining": estimated_time_remaining,
+            "updated_at": datetime.utcnow().isoformat()
+        }
         
-        with open(metadata_file, "r") as f:
-            metadata = json.load(f)
-        
-        metadata["status"] = status
-        metadata["progress"] = progress
-        metadata["estimated_time_remaining"] = estimated_time_remaining
-        metadata["updated_at"] = datetime.utcnow().isoformat()
-        
-        with open(metadata_file, "w") as f:
-            json.dump(metadata, f, indent=2)
+        await cosmos_service.update_analysis_record(analysis_id, update_data)
             
     except Exception as e:
         print(f"Error updating analysis status: {str(e)}")

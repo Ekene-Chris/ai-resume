@@ -29,6 +29,7 @@ local.settings.json
 
 # Local data and analysis results
 app/data/analyses/
+app/data/analyses/*.json
 
 # IDE files
 .idea/

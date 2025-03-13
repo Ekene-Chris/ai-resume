@@ -44,3 +44,13 @@ class AnalysisResponse(BaseModel):
     matrix_alignment: MatrixAlignment
     summary: str
     completed_at: str
+
+class AnalysisSummary(BaseModel):
+    """Summary model for listing analyses"""
+    analysis_id: str
+    name: str
+    email: str
+    target_role: str
+    experience_level: str
+    status: str
+    created_at: str
