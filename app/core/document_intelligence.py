@@ -24,44 +24,69 @@ class DocumentIntelligenceService:
         
         Args:
             document_url: The URL to the document in Azure Blob Storage
-            
+                
         Returns:
             Structured JSON data extracted from the resume
         """
         try:
             logger.info(f"Analyzing document at URL: {document_url}")
             
-            # Set up the API request
-            headers = {
-                "Content-Type": "application/json",
-                "Ocp-Apim-Subscription-Key": self.key
+            # Import necessary modules
+            from azure.core.credentials import AzureKeyCredential
+            from azure.ai.formrecognizer import DocumentAnalysisClient  # Try older client
+            
+            # Log endpoint and key prefix for debugging
+            logger.info(f"Using endpoint: {self.endpoint}")
+            logger.info(f"Key prefix: {self.key[:4]}...")
+            
+            # Create client
+            document_client = DocumentAnalysisClient(
+                endpoint=self.endpoint, 
+                credential=AzureKeyCredential(self.key)
+            )
+            
+            # Try to analyze the document with the Read model
+            logger.info(f"Analyzing document with read model")
+            poller = document_client.begin_analyze_document_from_url(
+                "prebuilt-read",  # Basic OCR capabilities
+                document_url
+            )
+            
+            # Wait for the operation to complete
+            result = poller.result()
+            
+            # Process the results into our expected format
+            structured_resume = {
+                "metadata": {
+                    "extracted_at": datetime.utcnow().isoformat(),
+                    "model_id": "prebuilt-read",
+                    "confidence": 0.0
+                },
+                "contact_info": {},
+                "skills": [],
+                "work_experience": [],
+                "education": [],
+                "sections": {},
+                "raw_text": ""
             }
             
-            body = {
-                "urlSource": document_url
-            }
+            # Extract text content from the document
+            text_content = []
+            for page in result.pages:
+                for line in page.lines:
+                    text_content.append(line.content)
             
-            # Define the API endpoint URL
-            api_url = f"{self.endpoint}/documentintelligence/documentModels/{self.model_id}:analyze?api-version=2024-11-30"
+            structured_resume["raw_text"] = "\n".join(text_content)
             
-            # Submit the document for analysis
-            async with aiohttp.ClientSession() as session:
-                async with session.post(api_url, headers=headers, json=body) as response:
-                    if response.status in (200, 202):
-                        operation_location = response.headers.get("Operation-Location")
-                        if not operation_location:
-                            raise Exception("No Operation-Location header in response")
-                        
-                        # Poll the operation until it's complete
-                        result = await self._poll_operation_result(session, operation_location, headers)
-                        return self._process_analysis_result(result)
-                    else:
-                        error_text = await response.text()
-                        logger.error(f"Document Intelligence API error: {response.status}, {error_text}")
-                        raise Exception(f"Document Intelligence API error: {response.status}, {error_text}")
+            # If no text was extracted, that's an error
+            if not structured_resume["raw_text"].strip():
+                raise Exception("No text content could be extracted from the document")
+            
+            logger.info(f"Successfully extracted {len(text_content)} lines of text")
+            return structured_resume
         
         except Exception as e:
-            logger.error(f"Error analyzing document with Document Intelligence: {str(e)}")
+            logger.error(f"Error analyzing document with Document Intelligence: {str(e)}", exc_info=True)
             raise
     
     async def _poll_operation_result(self, session: aiohttp.ClientSession, operation_location: str, 
@@ -92,6 +117,7 @@ class DocumentIntelligenceService:
                     elif status == "failed":
                         error_info = response_json.get("error", {})
                         error_message = error_info.get("message", "Unknown error")
+                        logger.error(f"Document analysis failed with error: {error_message}")
                         raise Exception(f"Document analysis failed: {error_message}")
                     
                     # Wait and retry with exponential backoff
@@ -108,6 +134,7 @@ class DocumentIntelligenceService:
                 wait_time = min(wait_time * 2, 30)
                 n_tries += 1
         
+        logger.error("Document analysis timed out after maximum retries")
         raise Exception("Document analysis timed out")
     
     def _process_analysis_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -126,8 +153,8 @@ class DocumentIntelligenceService:
             document = analyzed_document.get("documents", [{}])[0] if analyzed_document.get("documents") else {}
             
             if not document:
-                # Fallback to extracting content from pages
-                return self._extract_from_pages(analyzed_document.get("pages", []))
+                logger.error("Document Intelligence returned no document structure")
+                raise Exception("Document Intelligence failed to extract document structure")
             
             # Initialize the structured resume
             structured_resume = {
@@ -184,15 +211,22 @@ class DocumentIntelligenceService:
             # Extract raw text from pages for additional processing
             structured_resume["raw_text"] = self._extract_raw_text(analyzed_document.get("pages", []))
             
+            # Check if raw text is empty
+            if not structured_resume["raw_text"].strip():
+                logger.error("Document Intelligence extracted empty text content from pages")
+                if analyzed_document.get("content"):
+                    structured_resume["raw_text"] = analyzed_document.get("content")
+                else:
+                    raise Exception("No text content could be extracted from the document")
+            
             # Extract sections based on the raw text and page layout
             structured_resume["sections"] = self._extract_sections(analyzed_document)
             
             return structured_resume
             
         except Exception as e:
-            logger.error(f"Error processing Document Intelligence result: {str(e)}")
-            # Fallback to a simpler extraction if structured parsing fails
-            return self._extract_fallback(result)
+            logger.error(f"Error processing Document Intelligence result: {str(e)}", exc_info=True)
+            raise
     
     def _extract_field_value(self, field: Dict[str, Any]) -> str:
         """Extract the content value from a Document Intelligence field"""
@@ -227,10 +261,16 @@ class DocumentIntelligenceService:
     def _extract_raw_text(self, pages: List[Dict[str, Any]]) -> str:
         """Extract the raw text content from all pages"""
         text = ""
-        for page in pages:
+        for i, page in enumerate(pages):
             content = page.get("content", "")
             if content:
                 text += content + "\n\n"
+            else:
+                logger.warning(f"Page {i+1} has no content")
+        
+        if not text.strip():
+            logger.error("No text content found in any page of the document")
+        
         return text.strip()
     
     def _extract_sections(self, analyzed_document: Dict[str, Any]) -> Dict[str, Any]:
@@ -310,69 +350,85 @@ class DocumentIntelligenceService:
     
     def _identify_experience_section(self, sections: Dict[str, str], analyzed_document: Dict[str, Any]) -> None:
         """Try to identify an experience section if it wasn't found by headings"""
-        # Simplified approach - look for paragraphs with company names or job titles
-        # In production, more sophisticated entity recognition would be used
         pass
     
     def _identify_education_section(self, sections: Dict[str, str], analyzed_document: Dict[str, Any]) -> None:
         """Try to identify an education section if it wasn't found by headings"""
-        # Simplified approach - look for paragraphs with education keywords
-        # In production, more sophisticated entity recognition would be used
         pass
-    
-    def _extract_from_pages(self, pages: List[Dict[str, Any]]) -> Dict[str, Any]:
-        """Fallback method to extract content from pages if structured extraction fails"""
-        raw_text = self._extract_raw_text(pages)
-        
-        return {
+
+    def _process_layout_result(self, result) -> Dict[str, Any]:
+        """Process results from the layout model"""
+        structured_resume = {
             "metadata": {
                 "extracted_at": datetime.utcnow().isoformat(),
-                "model_id": self.model_id,
-                "confidence": 0,
-                "extraction_method": "fallback"
+                "model_id": "prebuilt-layout",
+                "confidence": 0.0
             },
             "contact_info": {},
             "skills": [],
             "work_experience": [],
             "education": [],
             "sections": {},
-            "raw_text": raw_text
+            "raw_text": ""
         }
-    
-    def _extract_fallback(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """Ultimate fallback method if all other extraction methods fail"""
-        try:
-            analyzed_result = result.get("analyzeResult", {})
-            content = ""
-            
-            # Try to extract content from pages
-            for page in analyzed_result.get("pages", []):
-                page_content = page.get("content", "")
-                if page_content:
-                    content += page_content + "\n\n"
-            
-            # If no content from pages, try to get content from document
-            if not content and analyzed_result.get("content"):
-                content = analyzed_result.get("content")
-            
-            return {
-                "metadata": {
-                    "extracted_at": datetime.utcnow().isoformat(),
-                    "model_id": self.model_id,
-                    "confidence": 0,
-                    "extraction_method": "emergency_fallback"
-                },
-                "raw_text": content.strip()
-            }
-        except Exception as e:
-            logger.error(f"Emergency fallback extraction failed: {str(e)}")
-            return {
-                "metadata": {
-                    "extracted_at": datetime.utcnow().isoformat(),
-                    "error": str(e)
-                },
-                "raw_text": "Failed to extract content from document."
-            }
+        
+        # Extract text from all pages
+        raw_text = ""
+        for page in result.pages:
+            if page.lines:
+                for line in page.lines:
+                    raw_text += line.content + "\n"
+        
+        structured_resume["raw_text"] = raw_text.strip()
+        
+        # Extract tables as potential sections
+        if result.tables:
+            for table_idx, table in enumerate(result.tables):
+                section_name = f"Table_{table_idx+1}"
+                section_content = []
+                
+                for cell in table.cells:
+                    section_content.append(cell.content)
+                
+                structured_resume["sections"][section_name] = "\n".join(section_content)
+        
+        logger.info(f"Extracted {len(structured_resume['raw_text'])} characters using layout model")
+        return structured_resume
+
+    def _process_read_result(self, result) -> Dict[str, Any]:
+        """Process results from the read model"""
+        structured_resume = {
+            "metadata": {
+                "extracted_at": datetime.utcnow().isoformat(),
+                "model_id": "prebuilt-read",
+                "confidence": 0.0
+            },
+            "contact_info": {},
+            "skills": [],
+            "work_experience": [],
+            "education": [],
+            "sections": {},
+            "raw_text": ""
+        }
+        
+        # Extract text from all pages
+        raw_text = ""
+        for page in result.pages:
+            if page.lines:
+                for line in page.lines:
+                    raw_text += line.content + "\n"
+        
+        structured_resume["raw_text"] = raw_text.strip()
+        
+        # Extract paragraphs as potential sections
+        if result.paragraphs:
+            for idx, paragraph in enumerate(result.paragraphs):
+                if paragraph.role and paragraph.role != "default":
+                    section_name = f"{paragraph.role}_{idx+1}"
+                    structured_resume["sections"][section_name] = paragraph.content
+        
+        logger.info(f"Extracted {len(structured_resume['raw_text'])} characters using read model")
+        return structured_resume
 
 # Create singleton instance
 document_intelligence = DocumentIntelligenceService()

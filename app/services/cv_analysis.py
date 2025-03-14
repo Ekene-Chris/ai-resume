@@ -45,21 +45,24 @@ async def analyze_cv_background(
         logger.info(f"Got blob URL: {blob_url}")
         
         # Extract structured data using Document Intelligence
-        logger.info(f"Extracting document data with Document Intelligence")
         try:
+            logger.info(f"Extracting document data with Document Intelligence")
             resume_data = await document_intelligence.analyze_document(blob_url)
             logger.info(f"Successfully extracted structured data from resume")
+            
+            # Validate that we got meaningful content
+            if not resume_data.get("raw_text", "").strip():
+                raise Exception("Document Intelligence returned empty text content")
+                
         except Exception as doc_error:
-            logger.error(f"Error extracting document data: {str(doc_error)}")
-            # If Document Intelligence fails, create a minimal resume_data structure
-            resume_data = {
-                "raw_text": f"Error extracting document data: {str(doc_error)}",
-                "contact_info": {"name": name, "email": email},
-                "skills": [],
-                "work_experience": [],
-                "education": [],
-                "sections": {}
+            logger.error(f"CRITICAL: Error extracting document data: {str(doc_error)}", exc_info=True)
+            error_update = {
+                "status": "failed",
+                "error": f"Document extraction failed: {str(doc_error)}",
+                "updated_at": datetime.utcnow().isoformat()
             }
+            await cosmos_service.update_analysis_record(analysis_id, error_update)
+            return  # Stop processing this job
         
         # Update status
         await update_analysis_status(analysis_id, "processing", 0.3, 30)
@@ -78,8 +81,8 @@ async def analyze_cv_background(
         await update_analysis_status(analysis_id, "processing", 0.5, 25)
         
         # Call OpenAI to analyze the CV
-        logger.info(f"Calling Azure OpenAI for analysis")
         try:
+            logger.info(f"Calling Azure OpenAI for analysis")
             analysis_result = await analyze_cv_with_openai(
                 cv_url=blob_url,
                 name=name,
@@ -91,8 +94,14 @@ async def analyze_cv_background(
                 user_prompt=user_prompt
             )
         except Exception as ai_error:
-            logger.error(f"Error in OpenAI analysis: {str(ai_error)}")
-            analysis_result = create_fallback_analysis(target_role, experience_level)
+            logger.error(f"CRITICAL: Error in OpenAI analysis: {str(ai_error)}", exc_info=True)
+            error_update = {
+                "status": "failed",
+                "error": f"AI analysis failed: {str(ai_error)}",
+                "updated_at": datetime.utcnow().isoformat()
+            }
+            await cosmos_service.update_analysis_record(analysis_id, error_update)
+            return  # Stop processing this job
         
         # Update status
         await update_analysis_status(analysis_id, "processing", 0.8, 10)
@@ -138,7 +147,7 @@ async def analyze_cv_background(
                 logger.warning(f"Failed to send email notification to {email}")
         
     except Exception as e:
-        logger.error(f"Error analyzing CV {analysis_id}: {str(e)}")
+        logger.error(f"Error analyzing CV {analysis_id}: {str(e)}", exc_info=True)
         
         # Update status to failed
         try:
@@ -167,46 +176,8 @@ async def update_analysis_status(
         }
         
         await cosmos_service.update_analysis_record(analysis_id, update_data)
+        logger.info(f"Updated analysis status: {status}, progress: {progress}")
             
     except Exception as e:
-        logger.error(f"Error updating analysis status: {str(e)}")
-
-def create_fallback_analysis(target_role: str, experience_level: str) -> Dict[str, Any]:
-    """
-    Create a fallback analysis in case the OpenAI API fails
-    """
-    return {
-        "overall_score": 50,
-        "categories": [
-            {
-                "name": "Technical Skills",
-                "score": 50,
-                "feedback": "Unable to perform detailed analysis. Please review the CV manually.",
-                "suggestions": ["Ensure skills match the core requirements for the role."]
-            },
-            {
-                "name": "Experience",
-                "score": 50,
-                "feedback": "Unable to perform detailed analysis. Please review the CV manually.",
-                "suggestions": ["Focus on relevant experience for the target role."]
-            },
-            {
-                "name": "Overall Presentation",
-                "score": 50,
-                "feedback": "Unable to perform detailed analysis. Please review the CV manually.",
-                "suggestions": ["Ensure the CV is well-structured and tailored to the role."]
-            }
-        ],
-        "keyword_analysis": {
-            "present": [],
-            "missing": [],
-            "recommended": ["Review manually to identify relevant keywords."]
-        },
-        "matrix_alignment": {
-            "current_level": "unknown",
-            "target_level": experience_level,
-            "gap_areas": ["Unable to determine gaps automatically."]
-        },
-        "summary": "Automatic analysis failed. Please review the CV manually against the requirements for a " 
-                  f"{target_role} position at {experience_level} level."
-    }
+        logger.error(f"Error updating analysis status: {str(e)}", exc_info=True)
+        raise
