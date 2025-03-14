@@ -3,15 +3,15 @@ from app.core.azure_blob import get_blob_url
 from app.core.cosmos_db import cosmos_service
 from app.core.azure_openai import analyze_cv_with_openai
 from app.core.document_intelligence import document_intelligence
-from app.services.email_service import send_analysis_completion_email
 from app.services.role_analyzers import get_role_analyzer
 from app.config import settings
-from typing import Dict, Any
+from typing import Dict, Any, BinaryIO
 import json
 import os
 from datetime import datetime
 import asyncio
 import logging
+from fastapi import Response
 
 # Configure logging
 logger = logging.getLogger(__name__)
@@ -130,21 +130,38 @@ async def analyze_cv_background(
             
         logger.info(f"Analysis completed and saved for {analysis_id}")
         
-        # Send email notification if enabled
+        # Send email notification with PDF if enabled
         if settings.EMAIL_ENABLED:
-            overall_score = analysis_result.get("overall_score", 0)
-            email_sent = await send_analysis_completion_email(
-                to_email=email,
-                name=name,
-                analysis_id=analysis_id,
-                target_role=target_role,
-                overall_score=overall_score
-            )
-            
-            if email_sent:
-                logger.info(f"Email notification sent to {email}")
-            else:
-                logger.warning(f"Failed to send email notification to {email}")
+            try:
+                # Import services here to avoid circular imports
+                from app.services.pdf_generator import pdf_generator
+                from app.services.email_service import email_service
+                
+                logger.info(f"Generating PDF report for analysis {analysis_id}")
+                pdf_report = pdf_generator.generate_analysis_report(
+                    analysis_data=analysis_result,
+                    name=name,
+                    email=email,
+                    target_role=target_role
+                )
+                
+                # Send email with PDF attachment
+                logger.info(f"Sending email with PDF report to {email}")
+                email_sent = await email_service.send_analysis_completion_email(
+                    to_email=email,
+                    name=name,
+                    analysis_id=analysis_id,
+                    target_role=target_role,
+                    pdf_attachment=pdf_report
+                )
+                
+                if email_sent:
+                    logger.info(f"Email with PDF report sent to {email}")
+                else:
+                    logger.warning(f"Failed to send email with PDF report to {email}")
+            except Exception as email_error:
+                logger.error(f"Error in email process: {str(email_error)}", exc_info=True)
+                # Continue execution even if email fails
         
     except Exception as e:
         logger.error(f"Error analyzing CV {analysis_id}: {str(e)}", exc_info=True)
