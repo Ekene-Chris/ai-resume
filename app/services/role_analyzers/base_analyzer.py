@@ -4,11 +4,12 @@ import logging
 import json
 import re
 from abc import ABC, abstractmethod
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
 class BaseRoleAnalyzer(ABC):
-    """Base class for role-specific resume analyzers"""
+    """Base class for role-specific resume analyzers with improved raw text handling"""
     
     def __init__(self, role_name: str, experience_level: str):
         self.role_name = role_name
@@ -37,6 +38,9 @@ class BaseRoleAnalyzer(ABC):
     
     def format_skills_list(self, skills: List[Dict[str, Any]]) -> str:
         """Format extracted skills into a string"""
+        if not skills:
+            return "No specific skills data available in resume."
+            
         return ", ".join([skill.get("name", "") for skill in skills if skill.get("name")])
     
     def format_work_experience(self, experiences: List[Dict[str, Any]]) -> str:
@@ -93,6 +97,20 @@ class BaseRoleAnalyzer(ABC):
         
         return education_text
     
+    def extract_raw_text_for_prompt(self, resume_data: Dict[str, Any], max_length: int = 3000) -> str:
+        """Extract and format raw text for the prompt, considering token limits"""
+        raw_text = resume_data.get("raw_text", "")
+        
+        if not raw_text:
+            return "No resume text available for analysis."
+        
+        # Trim to maximum length
+        if len(raw_text) > max_length:
+            trimmed_text = raw_text[:max_length]
+            return trimmed_text + f"\n\n[Note: Resume text has been truncated to {max_length} characters for analysis]"
+        
+        return raw_text
+    
     def extract_years_of_experience(self, experiences: List[Dict[str, Any]]) -> float:
         """
         Attempt to calculate total years of experience from work history
@@ -100,6 +118,10 @@ class BaseRoleAnalyzer(ABC):
         """
         import re
         from datetime import datetime
+        
+        if not experiences:
+            # Try to extract from raw text if no structured data
+            return 0.0
         
         total_months = 0
         current_year = datetime.now().year
@@ -146,6 +168,67 @@ class BaseRoleAnalyzer(ABC):
         # Convert months to years
         return round(total_months / 12, 1)
     
+    def extract_years_of_experience_from_text(self, raw_text: str) -> float:
+        """
+        Attempt to calculate years of experience from raw text
+        Returns a float representing estimated years of experience
+        """
+        import re
+        
+        # Look for common experience indicators
+        experience_patterns = [
+            r'(\d+)\s*(?:\+)?\s*years?\s+(?:of\s+)?experience',
+            r'experience\s*(?:of|:)?\s*(\d+)\s*(?:\+)?\s*years?',
+            r'(?:with|having)\s+(\d+)\s*(?:\+)?\s*years?\s+(?:of\s+)?experience',
+            r'career\s+(?:spanning|of)\s+(\d+)\s*(?:\+)?\s*years?'
+        ]
+        
+        for pattern in experience_patterns:
+            match = re.search(pattern, raw_text, re.IGNORECASE)
+            if match:
+                try:
+                    years = float(match.group(1))
+                    return years
+                except ValueError:
+                    continue
+        
+        # If no explicit mention, try to estimate from date ranges
+        date_ranges = re.findall(r'((?:19|20)\d{2})\s*(?:-|–|to)\s*((?:19|20)\d{2}|present|current|now)', 
+                               raw_text, re.IGNORECASE)
+        
+        if date_ranges:
+            total_years = 0
+            current_year = datetime.now().year
+            
+            for start, end in date_ranges:
+                try:
+                    start_year = int(start)
+                    if end.lower() in ['present', 'current', 'now']:
+                        end_year = current_year
+                    else:
+                        end_year = int(end)
+                    
+                    years = end_year - start_year
+                    if 0 < years < 50:  # Sanity check
+                        total_years += years
+                except ValueError:
+                    continue
+            
+            if total_years > 0:
+                return round(total_years, 1)
+        
+        # If all else fails, make a rough estimate based on content
+        # More junior resumes tend to be shorter and mention education more prominently
+        education_prominence = raw_text.lower().count('education') / max(1, len(raw_text)) * 10000
+        text_length = len(raw_text)
+        
+        if education_prominence > 20 and text_length < 2000:
+            return 1.0  # Likely junior
+        elif text_length > 5000:
+            return 7.0  # Likely senior
+        else:
+            return 3.0  # Assume mid-level
+    
     def estimate_experience_level(self, years_of_experience: float) -> str:
         """
         Estimate experience level based on years of experience
@@ -163,8 +246,13 @@ class BaseRoleAnalyzer(ABC):
         Extract technology keywords from the resume
         Uses both extracted skills and raw text analysis
         """
-        # Start with extracted skills
-        tech_keywords = set([skill.get("name", "").lower() for skill in resume_data.get("skills", []) if skill.get("name")])
+        # Start with extracted skills if available
+        tech_keywords = set()
+        
+        # Get skills from structured data if available
+        skills = resume_data.get("skills", [])
+        if skills:
+            tech_keywords.update([skill.get("name", "").lower() for skill in skills if skill.get("name")])
         
         # Add common technology keywords from raw text
         raw_text = resume_data.get("raw_text", "").lower()

@@ -7,6 +7,8 @@ import aiohttp
 from datetime import datetime, timedelta
 import asyncio
 from app.config import settings
+from app.core.blob_access_handler import blob_access_handler
+from app.file_utils import download_file, extract_text_from_pdf_bytes, extract_text_from_docx_bytes
 
 logger = logging.getLogger(__name__)
 
@@ -29,406 +31,536 @@ class DocumentIntelligenceService:
             Structured JSON data extracted from the resume
         """
         try:
+            # Extract blob name from URL
+            blob_name = document_url.split('/')[-1].split('?')[0]  # Remove query params
             logger.info(f"Analyzing document at URL: {document_url}")
             
-            # Import necessary modules
-            from azure.core.credentials import AzureKeyCredential
-            from azure.ai.formrecognizer import DocumentAnalysisClient  # Try older client
-            
-            # Log endpoint and key prefix for debugging
-            logger.info(f"Using endpoint: {self.endpoint}")
-            logger.info(f"Key prefix: {self.key[:4]}...")
-            
-            # Create client
-            document_client = DocumentAnalysisClient(
-                endpoint=self.endpoint, 
-                credential=AzureKeyCredential(self.key)
-            )
-            
-            # Try to analyze the document with the Read model
-            logger.info(f"Analyzing document with read model")
-            poller = document_client.begin_analyze_document_from_url(
-                "prebuilt-read",  # Basic OCR capabilities
-                document_url
-            )
-            
-            # Wait for the operation to complete
-            result = poller.result()
-            
-            # Process the results into our expected format
-            structured_resume = {
-                "metadata": {
-                    "extracted_at": datetime.utcnow().isoformat(),
-                    "model_id": "prebuilt-read",
-                    "confidence": 0.0
-                },
-                "contact_info": {},
-                "skills": [],
-                "work_experience": [],
-                "education": [],
-                "sections": {},
-                "raw_text": ""
-            }
-            
-            # Extract text content from the document
-            text_content = []
-            for page in result.pages:
-                for line in page.lines:
-                    text_content.append(line.content)
-            
-            structured_resume["raw_text"] = "\n".join(text_content)
-            
-            # If no text was extracted, that's an error
-            if not structured_resume["raw_text"].strip():
-                raise Exception("No text content could be extracted from the document")
-            
-            logger.info(f"Successfully extracted {len(text_content)} lines of text")
-            return structured_resume
-        
-        except Exception as e:
-            logger.error(f"Error analyzing document with Document Intelligence: {str(e)}", exc_info=True)
-            raise
-    
-    async def _poll_operation_result(self, session: aiohttp.ClientSession, operation_location: str, 
-                                    headers: Dict[str, str], max_retries: int = 10) -> Dict[str, Any]:
-        """
-        Poll the Document Intelligence operation until it completes
-        
-        Args:
-            session: The active aiohttp session
-            operation_location: The URL to poll for results
-            headers: Request headers
-            max_retries: Maximum number of polling attempts
-            
-        Returns:
-            The analysis result
-        """
-        n_tries = 0
-        wait_time = 2  # Start with 2 seconds wait time
-        
-        while n_tries < max_retries:
             try:
-                async with session.get(operation_location, headers=headers) as response:
-                    response_json = await response.json()
+                # Import necessary modules
+                from azure.core.credentials import AzureKeyCredential
+                from azure.ai.formrecognizer import DocumentAnalysisClient
+                
+                # Log endpoint and key prefix for debugging
+                logger.info(f"Using Document Intelligence endpoint: {self.endpoint}")
+                
+                # Create client
+                document_client = DocumentAnalysisClient(
+                    endpoint=self.endpoint, 
+                    credential=AzureKeyCredential(self.key)
+                )
+                
+                # Try to analyze the document with the document intelligence model
+                logger.info(f"Analyzing document with Document Intelligence")
+                
+                try:
+                    # First attempt with original URL
+                    poller = document_client.begin_analyze_document_from_url(
+                        "prebuilt-read",  # Basic OCR capabilities
+                        document_url
+                    )
+                    result = poller.result()
+                    logger.info(f"Successfully analyzed document with Document Intelligence")
                     
-                    status = response_json.get("status")
-                    if status == "succeeded":
-                        return response_json
-                    elif status == "failed":
-                        error_info = response_json.get("error", {})
-                        error_message = error_info.get("message", "Unknown error")
-                        logger.error(f"Document analysis failed with error: {error_message}")
-                        raise Exception(f"Document analysis failed: {error_message}")
+                except Exception as di_error:
+                    logger.warning(f"Initial Document Intelligence analysis failed: {str(di_error)}")
                     
-                    # Wait and retry with exponential backoff
-                    n_tries += 1
-                    await asyncio.sleep(wait_time)
-                    wait_time = min(wait_time * 2, 30)  # Double wait time, max 30 seconds
-            
-            except Exception as e:
-                if n_tries >= max_retries - 1:
-                    logger.error(f"Max retries exceeded for document analysis: {str(e)}")
-                    raise
-                logger.warning(f"Error polling document analysis (retry {n_tries+1}/{max_retries}): {str(e)}")
-                await asyncio.sleep(wait_time)
-                wait_time = min(wait_time * 2, 30)
-                n_tries += 1
+                    # Check if this is an access issue
+                    error_message, is_fixable = await blob_access_handler.diagnose_blob_access_error(
+                        blob_name=blob_name, 
+                        error=di_error
+                    )
+                    
+                    if is_fixable:
+                        # Try to get an accessible URL (with SAS token)
+                        logger.info(f"Attempting to get accessible URL for blob {blob_name}")
+                        accessible_url = await blob_access_handler.get_accessible_url(
+                            blob_name=blob_name,
+                            original_url=document_url
+                        )
+                        
+                        if accessible_url != document_url:
+                            logger.info(f"Generated accessible URL, retrying Document Intelligence")
+                            
+                            # Retry with SAS URL
+                            poller = document_client.begin_analyze_document_from_url(
+                                "prebuilt-read",
+                                accessible_url
+                            )
+                            result = poller.result()
+                            logger.info(f"Successfully analyzed document with SAS URL")
+                        else:
+                            raise Exception(f"Could not generate accessible URL: {error_message}")
+                    else:
+                        # If it's not fixable, raise the error
+                        raise Exception(f"Document access error: {error_message}")
+                
+                # Process the results into our expected format
+                structured_resume = {
+                    "metadata": {
+                        "extracted_at": datetime.utcnow().isoformat(),
+                        "model_id": "prebuilt-read",
+                        "confidence": 0.0
+                    },
+                    "contact_info": {},
+                    "skills": [],
+                    "work_experience": [],
+                    "education": [],
+                    "sections": {},
+                    "raw_text": ""
+                }
+                
+                # Extract text content from the document
+                text_content = []
+                for page in result.pages:
+                    for line in page.lines:
+                        text_content.append(line.content)
+                
+                structured_resume["raw_text"] = "\n".join(text_content)
+                
+                # If no text was extracted, that's an error
+                if not structured_resume["raw_text"].strip():
+                    raise Exception("No text content could be extracted from the document")
+                
+                logger.info(f"Successfully extracted {len(text_content)} lines of text")
+                
+                # Attempt to extract more structured data
+                try:
+                    structured_resume["contact_info"] = self._extract_contact_info(structured_resume["raw_text"])
+                    structured_resume["skills"] = self._extract_skills(structured_resume["raw_text"])
+                    structured_resume["sections"] = self._extract_sections(structured_resume["raw_text"])
+                    
+                    # Only log, don't break if these extractions fail
+                    logger.info("Successfully extracted additional structured data")
+                except Exception as extraction_error:
+                    logger.warning(f"Error during additional data extraction: {str(extraction_error)}")
+                
+                return structured_resume
+                
+            except Exception as di_error:
+                # Log the Document Intelligence error
+                logger.error(f"Document Intelligence error: {str(di_error)}")
+                
+                # Fall back to direct file processing
+                logger.info("Falling back to direct file processing")
+                
+                # Try to get an accessible URL for the blob
+                try:
+                    accessible_url = await blob_access_handler.get_accessible_url(
+                        blob_name=blob_name,
+                        original_url=document_url
+                    )
+                except Exception as access_error:
+                    logger.warning(f"Error getting accessible URL: {str(access_error)}")
+                    accessible_url = document_url  # Fall back to original URL
+                
+                # Download the file
+                file_content = await download_file(accessible_url)
+                
+                if not file_content:
+                    raise Exception("Failed to download document content")
+                
+                # Determine file type and extract text
+                if blob_name.lower().endswith('.pdf'):
+                    logger.info("Processing PDF document with direct extraction")
+                    raw_text = await extract_text_from_pdf_bytes(file_content)
+                elif blob_name.lower().endswith('.docx') or blob_name.lower().endswith('.doc'):
+                    logger.info("Processing DOCX document with direct extraction")
+                    raw_text = await extract_text_from_docx_bytes(file_content)
+                else:
+                    logger.info("Processing text document")
+                    raw_text = file_content.decode('utf-8', errors='replace')
+                
+                # If we got no text, that's an error
+                if not raw_text or len(raw_text.strip()) < 50:
+                    raise Exception("Extracted text is too short or empty")
+                
+                # Create a basic structure
+                structured_resume = {
+                    "metadata": {
+                        "extracted_at": datetime.utcnow().isoformat(),
+                        "extraction_method": "direct_extraction",
+                        "reason": str(di_error)
+                    },
+                    "contact_info": self._extract_contact_info(raw_text),
+                    "skills": self._extract_skills(raw_text),
+                    "work_experience": self._extract_work_experience(raw_text),
+                    "education": self._extract_education(raw_text),
+                    "sections": self._extract_sections(raw_text),
+                    "raw_text": raw_text
+                }
+                
+                logger.info(f"Successfully extracted {len(raw_text)} characters with direct method")
+                return structured_resume
         
-        logger.error("Document analysis timed out after maximum retries")
-        raise Exception("Document analysis timed out")
-    
-    def _process_analysis_result(self, result: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Process and structure the raw Document Intelligence analysis result
-        
-        Args:
-            result: The raw analysis result
+        except Exception as e:
+            logger.error(f"Error analyzing document: {str(e)}", exc_info=True)
             
-        Returns:
-            A structured and normalized representation of the resume
-        """
-        try:
-            # Extract the analyzed document
-            analyzed_document = result.get("analyzeResult", {})
-            document = analyzed_document.get("documents", [{}])[0] if analyzed_document.get("documents") else {}
+            # Return a minimal structure with whatever we have
+            raw_text = ""
+            if 'raw_text' in locals() and raw_text:
+                pass
+            elif 'text_content' in locals() and text_content:
+                raw_text = "\n".join(text_content)
+            else:
+                raw_text = "Failed to extract any text from document"
             
-            if not document:
-                logger.error("Document Intelligence returned no document structure")
-                raise Exception("Document Intelligence failed to extract document structure")
-            
-            # Initialize the structured resume
-            structured_resume = {
+            return {
                 "metadata": {
                     "extracted_at": datetime.utcnow().isoformat(),
-                    "model_id": self.model_id,
-                    "confidence": document.get("confidence", 0)
+                    "extraction_method": "error_fallback",
+                    "error": str(e)
                 },
                 "contact_info": {},
                 "skills": [],
                 "work_experience": [],
                 "education": [],
                 "sections": {},
-                "raw_text": ""
+                "raw_text": raw_text
             }
+    
+    def _extract_contact_info(self, text: str) -> Dict[str, str]:
+        """Extract contact information from text"""
+        import re
+        
+        # Initialize contact info
+        contact_info = {
+            "name": "",
+            "email": "",
+            "phone": "",
+            "linkedin": "",
+            "location": ""
+        }
+        
+        # Extract email
+        email_pattern = r'[\w\.-]+@[\w\.-]+\.\w+'
+        email_match = re.search(email_pattern, text)
+        if email_match:
+            contact_info["email"] = email_match.group(0)
+        
+        # Extract phone (simple pattern)
+        phone_pattern = r'(?:\+\d{1,3}[-\.\s]?)?(?:\(?\d{3}\)?[-\.\s]?)?\d{3}[-\.\s]?\d{4}'
+        phone_match = re.search(phone_pattern, text)
+        if phone_match:
+            contact_info["phone"] = phone_match.group(0)
+        
+        # Extract LinkedIn
+        linkedin_pattern = r'linkedin\.com/in/[\w-]+'
+        linkedin_match = re.search(linkedin_pattern, text, re.IGNORECASE)
+        if linkedin_match:
+            contact_info["linkedin"] = linkedin_match.group(0)
+        
+        # Try to extract name (first 100 chars, first line that's not too long)
+        first_100 = text[:100]
+        lines = first_100.split('\n')
+        for line in lines:
+            line = line.strip()
+            if 2 < len(line) < 40 and not any(c in line for c in ['@', '/', ':', 'http']):
+                contact_info["name"] = line
+                break
+                
+        return contact_info
+    
+    def _extract_skills(self, text: str) -> List[Dict[str, Any]]:
+        """Extract skills from resume text"""
+        import re
+        
+        # Common tech skills to look for
+        tech_skills = [
+            # Programming languages
+            "Python", "JavaScript", "TypeScript", "Java", "C#", "C\\+\\+", "Go", "Ruby", "PHP",
+            "Rust", "Swift", "Kotlin", "Scala", "R", "Bash", "Perl", "Shell", "PowerShell",
             
-            # Extract fields from the document
-            fields = document.get("fields", {})
+            # Web technologies
+            "HTML", "CSS", "React", "Angular", "Vue", "Next.js", "Gatsby", "Node.js", "Express",
+            "Django", "Flask", "Spring", "Laravel", "Rails", "ASP.NET", 
             
-            # Extract contact information
-            contact_info = fields.get("contactInfo", {}).get("valueObject", {})
-            structured_resume["contact_info"] = {
-                "name": self._extract_field_value(contact_info.get("name", {})),
-                "email": self._extract_field_value(contact_info.get("email", {})),
-                "phone": self._extract_field_value(contact_info.get("phone", {})),
-                "linkedin": self._extract_field_value(contact_info.get("linkedIn", {})),
-                "location": self._extract_field_value(contact_info.get("location", {}))
-            }
+            # DevOps tools and platforms
+            "Docker", "Kubernetes", "AWS", "Azure", "GCP", "Terraform", "Ansible", "Chef",
+            "Puppet", "Jenkins", "GitHub Actions", "CircleCI", "Travis CI", "ArgoCD", "GitLab CI",
+            "YAML", "GitHub", "Git", "Prometheus", "Grafana", "ELK", "Elasticsearch", "Logstash", 
+            "Kibana", "Datadog", "New Relic", "Nagios", "Zabbix",
             
-            # Extract skills
-            skills = fields.get("skills", {}).get("valueArray", [])
-            structured_resume["skills"] = [
-                {
-                    "name": self._extract_field_value(skill.get("valueObject", {}).get("name", {})),
-                    "confidence": skill.get("confidence", 0)
-                }
-                for skill in skills
-            ]
+            # Databases
+            "SQL", "MySQL", "PostgreSQL", "MongoDB", "Redis", "Cassandra", "DynamoDB", 
+            "Oracle", "MS SQL Server", "SQLite", "Neo4j", "Couchbase", "Firebase",
             
-            # Extract work experience
-            work_experiences = fields.get("workExperiences", {}).get("valueArray", [])
-            structured_resume["work_experience"] = [
-                self._process_work_experience(exp.get("valueObject", {}))
-                for exp in work_experiences
-            ]
+            # Cloud services
+            "Lambda", "S3", "EC2", "ECS", "EKS", "RDS", "CloudFormation", "Azure Functions",
+            "App Service", "Azure DevOps", "Google Cloud Run", "Serverless", "Microservices",
+            "API Gateway", "Service Mesh", "Istio", "Linkerd", "Cloudflare",
             
-            # Extract education
-            educations = fields.get("educationDetails", {}).get("valueArray", [])
-            structured_resume["education"] = [
-                self._process_education(edu.get("valueObject", {}))
-                for edu in educations
-            ]
+            # Other tech
+            "CI/CD", "TDD", "BDD", "Agile", "Scrum", "Kanban", "REST", "GraphQL", "gRPC",
+            "WebSockets", "OAuth", "JWT", "SAML", "SSO", "GDPR", "CCPA"
+        ]
+        
+        found_skills = []
+        
+        # Create a combined pattern to find skills
+        pattern = r'\b(?:' + '|'.join(tech_skills) + r')\b'
+        
+        # Find all skills in the text
+        matches = re.finditer(pattern, text, re.IGNORECASE)
+        for match in matches:
+            skill = match.group(0)
+            # Check if we already found this skill
+            if not any(s["name"].lower() == skill.lower() for s in found_skills):
+                found_skills.append({
+                    "name": skill,
+                    "confidence": 0.9  # Default confidence
+                })
+        
+        return found_skills
+    
+    def _extract_work_experience(self, text: str) -> List[Dict[str, Any]]:
+        """Extract work experience from resume text"""
+        import re
+        
+        # Split the text into sections
+        sections = self._extract_sections(text)
+        
+        # Look for a work experience section
+        work_text = ""
+        for section_name, section_content in sections.items():
+            section_name_lower = section_name.lower()
+            if any(kw in section_name_lower for kw in ["experience", "employment", "work", "professional"]):
+                work_text = section_content
+                break
+        
+        # If no specific section found, use the whole text
+        if not work_text:
+            work_text = text
+        
+        # Find date patterns that likely indicate work experiences
+        date_pattern = r'(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s*(?:-|–|to)\s*(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}|(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{4}\s*(?:-|–|to)\s*(?:Present|Current|Now)|(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:19|20)\d{2}|(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:Present|Current|Now)'
+        date_matches = re.finditer(date_pattern, work_text, re.IGNORECASE)
+        
+        experiences = []
+        for match in date_matches:
+            # Extract the date range
+            date_range = match.group(0)
             
-            # Extract raw text from pages for additional processing
-            structured_resume["raw_text"] = self._extract_raw_text(analyzed_document.get("pages", []))
+            # Try to find company and title around the date
+            context_start = max(0, match.start() - 100)
+            context_end = min(len(work_text), match.end() + 300)
+            context = work_text[context_start:context_end]
             
-            # Check if raw text is empty
-            if not structured_resume["raw_text"].strip():
-                logger.error("Document Intelligence extracted empty text content from pages")
-                if analyzed_document.get("content"):
-                    structured_resume["raw_text"] = analyzed_document.get("content")
+            # Extract title and company using heuristics
+            title = ""
+            company = ""
+            
+            # Find company - often near the date with common indicators
+            company_indicators = ["at", "with", "-", "–", "|", ","]
+            for indicator in company_indicators:
+                if indicator in context:
+                    parts = context.split(indicator, 1)
+                    if len(parts) > 1:
+                        company_candidates = parts[1].split('\n', 1)[0].strip()
+                        if len(company_candidates) < 50:  # Reasonable company name length
+                            company = company_candidates
+                            break
+            
+            # Try to extract job title - often before company
+            if company and "at" in context:
+                title_parts = context.split("at " + company)[0].split('\n')
+                if title_parts:
+                    title = title_parts[-1].strip()
+            
+            # If we couldn't extract it, try other methods
+            if not title:
+                # Look for title indicators
+                title_indicators = ["Senior", "Lead", "Principal", "Engineer", "Developer", "Architect", 
+                                   "Manager", "Director", "Consultant", "Specialist", "Analyst"]
+                for indicator in title_indicators:
+                    if indicator in context:
+                        # Find the line containing the indicator
+                        lines = context.split('\n')
+                        for line in lines:
+                            if indicator in line and len(line.strip()) < 60:
+                                title = line.strip()
+                                break
+                        if title:
+                            break
+            
+            # Process the date range
+            start_date = ""
+            end_date = ""
+            if "-" in date_range or "–" in date_range or "to" in date_range:
+                split_char = "-" if "-" in date_range else "–" if "–" in date_range else "to"
+                dates = date_range.split(split_char)
+                if len(dates) == 2:
+                    start_date = dates[0].strip()
+                    end_date = dates[1].strip()
+            
+            # Extract job description - text after the title and company, before next date
+            description = ""
+            if title and company:
+                # Try to find where the description starts
+                title_company = f"{title} at {company}"
+                if title_company in context:
+                    desc_start = context.find(title_company) + len(title_company)
+                    # Try to find where it ends (next date or job title)
+                    next_match = re.search(date_pattern, context[desc_start:])
+                    if next_match:
+                        desc_end = desc_start + next_match.start()
+                        description = context[desc_start:desc_end].strip()
+                    else:
+                        description = context[desc_start:].strip()
+            
+            # If we have at least some basic info, add it
+            if (title or company) and (start_date or description):
+                experiences.append({
+                    "job_title": title,
+                    "company": company,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "description": description[:500],  # Limit description length
+                    "responsibilities": []  # We won't try to parse individual responsibilities
+                })
+        
+        return experiences
+    
+    def _extract_education(self, text: str) -> List[Dict[str, Any]]:
+        """Extract education from resume text"""
+        import re
+        
+        # Split the text into sections
+        sections = self._extract_sections(text)
+        
+        # Look for an education section
+        education_text = ""
+        for section_name, section_content in sections.items():
+            section_name_lower = section_name.lower()
+            if any(kw in section_name_lower for kw in ["education", "academic", "university", "college", "degree"]):
+                education_text = section_content
+                break
+        
+        # If no specific section found, use the whole text
+        if not education_text:
+            education_text = text
+        
+        # Look for education indicators
+        education_indicators = [
+            "Bachelor", "Master", "PhD", "Doctor", "BSc", "MSc", "BA", "MA", "MBA", "B.S.", "M.S.",
+            "University", "College", "Institute", "School of", "Academy"
+        ]
+        
+        # Find degree patterns
+        degree_pattern = r'(?:Bachelor|Master|PhD|Doctor|BSc|MSc|BA|MA|MBA|B\.S\.|M\.S\.|B\.A\.|M\.A\.|Associate)(?:\s+(?:of|in))?\s+(?:Science|Arts|Engineering|Business|Administration|Computer Science|Information Technology|IT|CS)'
+        degree_matches = re.finditer(degree_pattern, education_text, re.IGNORECASE)
+        
+        education_entries = []
+        
+        for match in degree_matches:
+            # Extract the degree
+            degree = match.group(0)
+            
+            # Look for context around the degree
+            context_start = max(0, match.start() - 100)
+            context_end = min(len(education_text), match.end() + 200)
+            context = education_text[context_start:context_end]
+            
+            # Try to extract institution
+            institution = ""
+            for indicator in education_indicators:
+                if indicator in context:
+                    # Find the line containing the indicator
+                    lines = context.split('\n')
+                    for line in lines:
+                        if indicator in line and "degree" not in line.lower() and len(line.strip()) < 100:
+                            institution = line.strip()
+                            break
+                    if institution:
+                        break
+            
+            # Look for dates in the context
+            date_pattern = r'(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:19|20)\d{2}|(?:19|20)\d{2}\s*(?:-|–|to)\s*(?:Present|Current|Now)|(?:19|20)\d{2}'
+            date_match = re.search(date_pattern, context)
+            
+            start_date = ""
+            end_date = ""
+            
+            if date_match:
+                date_str = date_match.group(0)
+                if "-" in date_str or "–" in date_str or "to" in date_str:
+                    split_char = "-" if "-" in date_str else "–" if "–" in date_str else "to"
+                    dates = date_str.split(split_char)
+                    if len(dates) == 2:
+                        start_date = dates[0].strip()
+                        end_date = dates[1].strip()
                 else:
-                    raise Exception("No text content could be extracted from the document")
+                    # Single year, probably graduation year
+                    end_date = date_str.strip()
             
-            # Extract sections based on the raw text and page layout
-            structured_resume["sections"] = self._extract_sections(analyzed_document)
+            # Try to extract field of study
+            field_of_study = ""
+            if degree:
+                # Try to extract field from degree
+                degree_parts = degree.split(" in ", 1)
+                if len(degree_parts) > 1:
+                    field_of_study = degree_parts[1].strip()
+                elif "of " in degree:
+                    degree_parts = degree.split(" of ", 1)
+                    if len(degree_parts) > 1:
+                        field_of_study = degree_parts[1].strip()
             
-            return structured_resume
-            
-        except Exception as e:
-            logger.error(f"Error processing Document Intelligence result: {str(e)}", exc_info=True)
-            raise
-    
-    def _extract_field_value(self, field: Dict[str, Any]) -> str:
-        """Extract the content value from a Document Intelligence field"""
-        return field.get("content", "") if field else ""
-    
-    def _process_work_experience(self, experience: Dict[str, Any]) -> Dict[str, Any]:
-        """Process a work experience entry from Document Intelligence"""
-        return {
-            "company": self._extract_field_value(experience.get("company", {})),
-            "job_title": self._extract_field_value(experience.get("jobTitle", {})),
-            "location": self._extract_field_value(experience.get("location", {})),
-            "start_date": self._extract_field_value(experience.get("startDate", {})),
-            "end_date": self._extract_field_value(experience.get("endDate", {})),
-            "description": self._extract_field_value(experience.get("jobDescription", {})),
-            "responsibilities": [
-                self._extract_field_value(resp) for resp in 
-                experience.get("jobResponsibilities", {}).get("valueArray", [])
-            ]
-        }
-    
-    def _process_education(self, education: Dict[str, Any]) -> Dict[str, Any]:
-        """Process an education entry from Document Intelligence"""
-        return {
-            "institution": self._extract_field_value(education.get("institution", {})),
-            "degree": self._extract_field_value(education.get("degree", {})),
-            "field_of_study": self._extract_field_value(education.get("fieldOfStudy", {})),
-            "start_date": self._extract_field_value(education.get("startDate", {})),
-            "end_date": self._extract_field_value(education.get("endDate", {})),
-            "gpa": self._extract_field_value(education.get("gpa", {}))
-        }
-    
-    def _extract_raw_text(self, pages: List[Dict[str, Any]]) -> str:
-        """Extract the raw text content from all pages"""
-        text = ""
-        for i, page in enumerate(pages):
-            content = page.get("content", "")
-            if content:
-                text += content + "\n\n"
-            else:
-                logger.warning(f"Page {i+1} has no content")
+            # If we have at least a degree or institution, add it
+            if degree or institution:
+                education_entries.append({
+                    "institution": institution,
+                    "degree": degree,
+                    "field_of_study": field_of_study,
+                    "start_date": start_date,
+                    "end_date": end_date,
+                    "gpa": ""  # We won't try to extract GPA
+                })
         
-        if not text.strip():
-            logger.error("No text content found in any page of the document")
-        
-        return text.strip()
+        return education_entries
     
-    def _extract_sections(self, analyzed_document: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Extract resume sections based on paragraph and heading structure
+    def _extract_sections(self, text: str) -> Dict[str, str]:
+        """Extract sections from resume text"""
+        import re
         
-        This is a more advanced extraction that tries to identify distinct
-        sections in the resume based on headings and text layout
-        """
+        # Common section headings in resumes
+        section_keywords = [
+            "Education", "Experience", "Employment", "Work Experience", "Professional Experience",
+            "Skills", "Technical Skills", "Projects", "Professional Projects", "Certifications",
+            "Awards", "Achievements", "Languages", "Interests", "Volunteer", "Publications",
+            "Summary", "Profile", "Objective", "References", "Additional Information"
+        ]
+        
+        # Create regex pattern for section headings
+        section_pattern = r'(?:^|\n)(?:\s*)((?:' + '|'.join(section_keywords) + r')(?:\s*):?)(?:\s*)(?:\n|$)'
+        
+        # Find all potential section headings
+        matches = list(re.finditer(section_pattern, text, re.IGNORECASE))
+        
         sections = {}
-        current_section = None
-        section_content = []
         
-        # Extract paragraphs and try to identify sections
-        paragraphs = analyzed_document.get("paragraphs", [])
+        # Process each section
+        for i, match in enumerate(matches):
+            # Section name is the matched text
+            section_name = match.group(1).strip()
+            
+            # Section start is right after the heading
+            section_start = match.end()
+            
+            # Section end is either the start of the next section or the end of the text
+            if i < len(matches) - 1:
+                section_end = matches[i + 1].start()
+            else:
+                section_end = len(text)
+            
+            # Extract the section content
+            section_content = text[section_start:section_end].strip()
+            
+            # Save the section
+            sections[section_name] = section_content
         
-        for paragraph in paragraphs:
-            content = paragraph.get("content", "").strip()
-            if not content:
-                continue
-                
-            # Check if this paragraph looks like a heading
-            role_name = paragraph.get("role", "")
-            is_heading = (
-                role_name == "heading" or 
-                role_name == "title" or
-                (len(content) < 50 and content.upper() == content) or  # ALL CAPS short text
-                content.endswith(":")  # Ends with colon
-            )
-            
-            if is_heading:
-                # Save the previous section if it exists
-                if current_section and section_content:
-                    sections[current_section] = "\n".join(section_content)
-                
-                # Start a new section
-                current_section = content.rstrip(":").strip()
-                section_content = []
-            elif current_section:
-                # Add content to the current section
-                section_content.append(content)
-            
-        # Save the last section
-        if current_section and section_content:
-            sections[current_section] = "\n".join(section_content)
-            
-        # Try to identify common resume sections if they're not already identified
-        if not any(key.lower() in ["skill", "skills", "technical skills"] for key in sections.keys()):
-            self._identify_skills_section(sections, analyzed_document)
-            
-        if not any(key.lower() in ["experience", "work experience", "employment"] for key in sections.keys()):
-            self._identify_experience_section(sections, analyzed_document)
-            
-        if not any(key.lower() in ["education", "academic", "qualification"] for key in sections.keys()):
-            self._identify_education_section(sections, analyzed_document)
+        # If no sections were found, create a single section with all text
+        if not sections:
+            sections["Full Text"] = text
             
         return sections
-    
-    def _identify_skills_section(self, sections: Dict[str, str], analyzed_document: Dict[str, Any]) -> None:
-        """Try to identify a skills section from raw content if it wasn't found by headings"""
-        raw_text = self._extract_raw_text(analyzed_document.get("pages", []))
-        
-        # Look for lists and patterns that might indicate skills
-        # This is a simplified approach - in production, more sophisticated 
-        # pattern matching would be used
-        skills_text = ""
-        
-        # Look for bullet lists of short items
-        for paragraph in analyzed_document.get("paragraphs", []):
-            content = paragraph.get("content", "").strip()
-            if content.startswith("•") or content.startswith("-") or content.startswith("*"):
-                if len(content) < 100:  # Likely a skill item
-                    skills_text += content + "\n"
-                    
-        if skills_text:
-            sections["Skills"] = skills_text.strip()
-    
-    def _identify_experience_section(self, sections: Dict[str, str], analyzed_document: Dict[str, Any]) -> None:
-        """Try to identify an experience section if it wasn't found by headings"""
-        pass
-    
-    def _identify_education_section(self, sections: Dict[str, str], analyzed_document: Dict[str, Any]) -> None:
-        """Try to identify an education section if it wasn't found by headings"""
-        pass
-
-    def _process_layout_result(self, result) -> Dict[str, Any]:
-        """Process results from the layout model"""
-        structured_resume = {
-            "metadata": {
-                "extracted_at": datetime.utcnow().isoformat(),
-                "model_id": "prebuilt-layout",
-                "confidence": 0.0
-            },
-            "contact_info": {},
-            "skills": [],
-            "work_experience": [],
-            "education": [],
-            "sections": {},
-            "raw_text": ""
-        }
-        
-        # Extract text from all pages
-        raw_text = ""
-        for page in result.pages:
-            if page.lines:
-                for line in page.lines:
-                    raw_text += line.content + "\n"
-        
-        structured_resume["raw_text"] = raw_text.strip()
-        
-        # Extract tables as potential sections
-        if result.tables:
-            for table_idx, table in enumerate(result.tables):
-                section_name = f"Table_{table_idx+1}"
-                section_content = []
-                
-                for cell in table.cells:
-                    section_content.append(cell.content)
-                
-                structured_resume["sections"][section_name] = "\n".join(section_content)
-        
-        logger.info(f"Extracted {len(structured_resume['raw_text'])} characters using layout model")
-        return structured_resume
-
-    def _process_read_result(self, result) -> Dict[str, Any]:
-        """Process results from the read model"""
-        structured_resume = {
-            "metadata": {
-                "extracted_at": datetime.utcnow().isoformat(),
-                "model_id": "prebuilt-read",
-                "confidence": 0.0
-            },
-            "contact_info": {},
-            "skills": [],
-            "work_experience": [],
-            "education": [],
-            "sections": {},
-            "raw_text": ""
-        }
-        
-        # Extract text from all pages
-        raw_text = ""
-        for page in result.pages:
-            if page.lines:
-                for line in page.lines:
-                    raw_text += line.content + "\n"
-        
-        structured_resume["raw_text"] = raw_text.strip()
-        
-        # Extract paragraphs as potential sections
-        if result.paragraphs:
-            for idx, paragraph in enumerate(result.paragraphs):
-                if paragraph.role and paragraph.role != "default":
-                    section_name = f"{paragraph.role}_{idx+1}"
-                    structured_resume["sections"][section_name] = paragraph.content
-        
-        logger.info(f"Extracted {len(structured_resume['raw_text'])} characters using read model")
-        return structured_resume
-
 # Create singleton instance
 document_intelligence = DocumentIntelligenceService()
