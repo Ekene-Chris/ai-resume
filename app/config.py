@@ -11,9 +11,6 @@ class Settings(BaseSettings):
     # Azure Blob Storage settings
     AZURE_STORAGE_ACCOUNT_NAME: str  # Add this new setting
     AZURE_STORAGE_CONTAINER_NAME: str = "cv-uploads"
-    
-    # Keep the connection string for backward compatibility
-    # This won't be used in the updated code
     AZURE_STORAGE_CONNECTION_STRING: str = ""
     
     # Azure OpenAI settings
@@ -35,11 +32,10 @@ class Settings(BaseSettings):
     # Application URLs
     APP_FRONTEND_URL: str = "http://localhost:3000"  # Frontend URL for email links
     
-    # Email service settings (optional)
+    # Azure Communication Services (Email) settings
     EMAIL_ENABLED: bool = False
-    EMAIL_API_KEY: str = ""
-    EMAIL_API_ENDPOINT: str = ""
-    EMAIL_FROM_ADDRESS: str = "no-reply@resume-analyzer.com"
+    AZURE_COMMUNICATION_SERVICES_CONNECTION_STRING: str = ""
+    EMAIL_SENDER_ADDRESS: str = "DoNotReply@teleios-resume-analyzer.azurecomm.net"
 
     # CORS settings
     CORS_ORIGINS: list[str] = ["*"]  # In production, specify your frontend domain

@@ -1,5 +1,5 @@
 # app/api/routes/cv.py
-from fastapi import APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks, Depends
+from fastapi import APIRouter, File, UploadFile, Form, HTTPException, BackgroundTasks, Depends, Response
 from fastapi.responses import JSONResponse
 from typing import Optional, List
 from uuid import uuid4
@@ -202,3 +202,62 @@ async def list_analyses():
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error listing analyses: {str(e)}")
+
+@router.get("/{analysis_id}/pdf", response_class=Response)
+async def get_analysis_pdf(analysis_id: str):
+    """
+    Get the CV analysis as a downloadable PDF report.
+    
+    Args:
+        analysis_id: The unique ID of the analysis
+        
+    Returns:
+        PDF report as a downloadable file
+    """
+    try:
+        # Get the analysis record from Cosmos DB
+        analysis_record = await cosmos_service.get_analysis_record(analysis_id)
+        
+        if not analysis_record:
+            raise HTTPException(status_code=404, detail="Analysis not found")
+            
+        if analysis_record.get("status") != "completed":
+            raise HTTPException(status_code=400, detail="Analysis not yet completed")
+            
+        # Get necessary information
+        results = analysis_record.get("results", {})
+        name = analysis_record.get("name", "")
+        email = analysis_record.get("email", "")
+        target_role = analysis_record.get("target_role", "")
+        
+        # Import PDF generator
+        from app.services.pdf_generator import pdf_generator
+        
+        # Generate PDF report
+        pdf_report = pdf_generator.generate_analysis_report(
+            analysis_data=results,
+            name=name,
+            email=email,
+            target_role=target_role
+        )
+        
+        # Create response with PDF
+        pdf_content = pdf_report.read()
+        
+        filename = f"resume_analysis_{analysis_id}.pdf"
+        
+        # Create response with PDF content
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename={filename}"
+            }
+        )
+        
+    except HTTPException as e:
+        raise e
+    except ImportError as e:
+        raise HTTPException(status_code=500, detail=f"PDF generation not available: {str(e)}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error generating PDF report: {str(e)}")
