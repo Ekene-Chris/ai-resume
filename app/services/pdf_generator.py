@@ -236,12 +236,9 @@ class PDFGenerator:
             elements.append(Spacer(1, 12))
             
             # Score interpretation
-            if overall_score >= 85:
+            if overall_score >= 70:
                 score_interpretation = "Excellent match for the role. Your resume demonstrates strong alignment with the requirements."
-                score_color = self.colors['gold']
-            elif overall_score >= 70:
-                score_interpretation = "Good match for the role. Your resume shows good alignment with most key requirements."
-                score_color = colors.green
+                score_color = colors.green  # Changed from gold to green for all scores 70+
             elif overall_score >= 50:
                 score_interpretation = "Moderate match. There are some areas that could be improved to better align with the role."
                 score_color = colors.orange
@@ -281,10 +278,8 @@ class PDFGenerator:
                 suggestions = category.get("suggestions", [])
                 
                 # Create a colored category header based on score
-                if score >= 85:
-                    category_color = self.colors['gold']
-                elif score >= 70:
-                    category_color = colors.green
+                if score >= 70:
+                    category_color = colors.green  
                 elif score >= 50:
                     category_color = colors.orange
                 else:

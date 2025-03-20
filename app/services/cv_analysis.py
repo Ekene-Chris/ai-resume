@@ -211,7 +211,7 @@ async def analyze_cv_background(
         # Add Teleios/Ekene Chris branding to the summary
         if "summary" in analysis_result:
             original_summary = analysis_result["summary"]
-            branded_summary = f"{original_summary}\n\nThis analysis is powered by Ekene Chris's Global DevOps Competency Matrix. For targeted improvement in the identified gap areas, consider exploring Teleios - our exclusive tech learning platform designed for ambitious engineers looking to compete on the global stage."
+            branded_summary = f"{original_summary}\n\nThis analysis is powered by Ekene Chris's Global Engineering Competency Matrix. For targeted improvement in the identified gap areas, consider exploring Teleios - our exclusive tech learning platform designed for ambitious engineers looking to compete on the global stage."
             analysis_result["summary"] = branded_summary
         
         # Add Teleios recommendations to missing skills
