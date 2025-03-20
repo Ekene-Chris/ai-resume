@@ -1,4 +1,4 @@
-# app/services/email_service.py - Customized for Ekene Chris brand
+# app/services/email_service.py - Updated for generic engineering roles
 import logging
 import os
 from typing import Dict, Any, Optional, BinaryIO
@@ -19,7 +19,7 @@ class EmailService:
         self.enabled = settings.EMAIL_ENABLED
         
         # Ekene Chris brand settings
-        self.brand_name = "Ekene Chris - DevOps Career Acceleration"
+        self.brand_name = "Ekene Chris - Technology Career Acceleration"
         self.brand_colors = {
             'primary': "#592429",  # Caput Mortuum
             'secondary': "#FFD700",  # Gold
@@ -158,7 +158,7 @@ The report includes:
 - Overall score and assessment aligned with industry standards
 - Detailed feedback on your technical skills and experience
 - Keyword analysis for better visibility with hiring managers
-- Gap analysis against the Global DevOps Competency Matrix
+- Gap analysis against the Global Engineering Competency Matrix
 - Actionable recommendations for improvement and career acceleration
 
 Please find your complete analysis report attached to this email.
@@ -178,7 +178,7 @@ Thank you for using our AI Resume Analyzer!
 
 Best regards,
 Ekene Chris
-DevOps Architect & Technical Educator
+Technology Architect & Technical Educator
 https://ekenechris.com
         """
     
@@ -319,7 +319,7 @@ https://ekenechris.com
 <body>
     <div class="header">
         <img src="{self.logo_url}" alt="Ekene Chris Logo" class="logo">
-        <h1>DevOps Career Acceleration</h1>
+        <h1>Technology Career Acceleration</h1>
     </div>
     
     <div class="content">
@@ -341,7 +341,7 @@ https://ekenechris.com
             <ul>
                 <li>Technical skills assessment with specific feedback</li>
                 <li>Keyword optimization for better visibility with hiring managers</li>
-                <li>Gap analysis against Global DevOps Competency Matrix standards</li>
+                <li>Gap analysis against Global Engineering Competency Matrix standards</li>
                 <li>Actionable recommendations to strengthen your profile</li>
                 <li>Career advancement strategies based on current market demands</li>
             </ul>
@@ -373,7 +373,7 @@ https://ekenechris.com
             <p>If you're ready to accelerate your tech career and compete globally, explore Teleios - our exclusive tech learning platform designed for ambitious engineers:</p>
             <ul>
                 <li>Join a selective community of exceptional engineers</li>
-                <li>Learn advanced DevOps concepts through real-world projects</li>
+                <li>Learn advanced technology concepts through real-world projects</li>
                 <li>Receive 1:1 mentorship from industry experts</li>
                 <li>Build a portfolio that demonstrates senior-level capabilities</li>
             </ul>
