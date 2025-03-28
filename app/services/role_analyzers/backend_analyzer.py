@@ -375,3 +375,174 @@ Provide your analysis in the specified JSON format only. No additional text or e
             "nodejs": ["node.js", "nodejs", "node"],
             "dotnet": [".net", "dotnet", ".net framework"]
         }
+    def _identify_databases(self, technologies: List[str], raw_text: str) -> List[str]:
+        """Identify which databases are mentioned in the resume"""
+        databases = []
+        
+        database_keywords = {
+            "mysql": ["mysql", "my sql"],
+            "postgresql": ["postgresql", "postgres", "psql"],
+            "mongodb": ["mongodb", "mongo", "nosql"],
+            "sqlite": ["sqlite", "sqlite3"],
+            "oracle": ["oracle", "oracle db", "plsql"],
+            "sql_server": ["sql server", "mssql", "t-sql"],
+            "dynamodb": ["dynamodb", "dynamo", "aws dynamodb"],
+            "cassandra": ["cassandra"],
+            "redis": ["redis", "key-value store"],
+            "couchdb": ["couchdb", "couch"],
+            "neo4j": ["neo4j", "graph database", "graph db"],
+            "elasticsearch": ["elasticsearch", "elastic", "elk"],
+            "mariadb": ["mariadb", "maria"],
+            "firebase": ["firebase", "firestore", "realtime database"],
+            "cosmosdb": ["cosmosdb", "cosmos", "azure cosmos"]
+        }
+        
+        for db, keywords in database_keywords.items():
+            for keyword in keywords:
+                if any(keyword.lower() in tech.lower() for tech in technologies) or keyword.lower() in raw_text.lower():
+                    databases.append(db)
+                    break
+        
+        # Also check for generic SQL knowledge
+        if "sql" in raw_text.lower() and not any(db in databases for db in ["mysql", "postgresql", "oracle", "sql_server", "sqlite", "mariadb"]):
+            databases.append("sql_generic")
+        
+        return list(set(databases))  # Remove duplicates
+    def _identify_missing_skills(self, technologies: List[str]) -> List[str]:
+        """Identify missing core skills for the target role"""
+        missing_skills = []
+        
+        if "core_skills" in self.role_requirements:
+            for skill in self.role_requirements["core_skills"]:
+                # Check if any technology in the resume matches this skill
+                if not any(self._skill_match(skill, tech) for tech in technologies):
+                    missing_skills.append(skill)
+        
+        return missing_skills
+
+    def _skill_match(self, skill: str, tech: str) -> bool:
+        """Check if a skill and technology match, handling compound skills"""
+        # Handle compound skills like "Python/JavaScript/Java/.NET"
+        if "/" in skill:
+            skill_parts = skill.lower().split("/")
+            return any(part in tech.lower() or tech.lower() in part for part in skill_parts)
+        
+        return skill.lower() in tech.lower() or tech.lower() in skill.lower()
+        
+    def _has_api_experience(self, resume_data: Dict[str, Any]) -> bool:
+        """Check if the resume mentions API experience"""
+        api_keywords = ["api", "rest", "graphql", "endpoint", "http", "request", "response", 
+                        "soap", "swagger", "openapi", "postman", "grpc"]
+        
+        raw_text = resume_data.get("raw_text", "").lower()
+        
+        return any(keyword in raw_text for keyword in api_keywords)
+
+    def _has_cloud_experience(self, resume_data: Dict[str, Any]) -> bool:
+        """Check if the resume mentions cloud experience"""
+        cloud_keywords = ["aws", "amazon web services", "ec2", "s3", "lambda",
+                        "azure", "microsoft azure", "gcp", "google cloud", 
+                        "cloud", "serverless", "iaas", "paas", "saas"]
+        
+        raw_text = resume_data.get("raw_text", "").lower()
+        
+        return any(keyword in raw_text for keyword in cloud_keywords)
+
+    def _has_microservices_experience(self, resume_data: Dict[str, Any]) -> bool:
+        """Check if the resume mentions microservices experience"""
+        microservices_keywords = ["microservice", "service-oriented", "soa", "distributed system",
+                                "service mesh", "api gateway", "container", "docker", "kubernetes"]
+        
+        raw_text = resume_data.get("raw_text", "").lower()
+        
+        return any(keyword in raw_text for keyword in microservices_keywords)
+
+    def _has_security_experience(self, resume_data: Dict[str, Any]) -> bool:
+        """Check if the resume mentions security experience"""
+        security_keywords = ["security", "authentication", "authorization", "oauth", 
+                            "jwt", "encryption", "csrf", "xss", "sql injection",
+                            "vulnerability", "penetration test", "pen test", "owasp"]
+        
+        raw_text = resume_data.get("raw_text", "").lower()
+        
+        return any(keyword in raw_text for keyword in security_keywords)
+
+    def _extract_database_experience(self, resume_data: Dict[str, Any]) -> str:
+        """Extract database-specific experience from the resume"""
+        raw_text = resume_data.get("raw_text", "").lower()
+        sections = resume_data.get("sections", {})
+        
+        # Database related keywords to look for
+        db_keywords = ["database", "sql", "nosql", "mysql", "postgresql", "mongodb",
+                    "oracle", "sqlserver", "redis", "elasticsearch", "dynamodb",
+                    "cassandra", "neo4j", "sqlite", "query", "schema", "normalization",
+                    "index", "join", "transaction", "acid", "orm"]
+        
+        # Look for paragraphs with database mentions
+        db_experience = ""
+        
+        # First look in work experiences
+        work_experiences = resume_data.get("work_experience", [])
+        for exp in work_experiences:
+            description = exp.get("description", "").lower()
+            if any(keyword in description for keyword in db_keywords):
+                db_experience += f"At {exp.get('company', '')}: {exp.get('description', '')}\n\n"
+                
+            # Also check responsibilities
+            responsibilities = exp.get("responsibilities", [])
+            for resp in responsibilities:
+                if any(keyword in resp.lower() for keyword in db_keywords):
+                    db_experience += f"At {exp.get('company', '')}: {resp}\n"
+        
+        # If nothing found in experiences, check entire raw text
+        if not db_experience:
+            # Find sentences containing database keywords
+            sentences = re.split(r'[.!?]+', raw_text)
+            for sentence in sentences:
+                if any(keyword in sentence for keyword in db_keywords):
+                    db_experience += sentence.strip() + ".\n"
+        
+        if not db_experience:
+            return "No specific database experience identified."
+        
+        return db_experience
+
+    def _extract_architecture_experience(self, resume_data: Dict[str, Any]) -> str:
+        """Extract architecture-specific experience from the resume"""
+        raw_text = resume_data.get("raw_text", "").lower()
+        sections = resume_data.get("sections", {})
+        
+        # Architecture related keywords to look for
+        arch_keywords = ["architecture", "design pattern", "mvc", "mvvm", "microservice",
+                        "monolith", "scalability", "high availability", "fault tolerance",
+                        "distributed system", "api gateway", "load balancing", "caching",
+                        "system design", "performance", "optimization", "refactoring"]
+        
+        # Look for paragraphs with architecture mentions
+        arch_experience = ""
+        
+        # First look in work experiences
+        work_experiences = resume_data.get("work_experience", [])
+        for exp in work_experiences:
+            description = exp.get("description", "").lower()
+            if any(keyword in description for keyword in arch_keywords):
+                arch_experience += f"At {exp.get('company', '')}: {exp.get('description', '')}\n\n"
+                
+            # Also check responsibilities
+            responsibilities = exp.get("responsibilities", [])
+            for resp in responsibilities:
+                if any(keyword in resp.lower() for keyword in arch_keywords):
+                    arch_experience += f"At {exp.get('company', '')}: {resp}\n"
+        
+        # If nothing found in experiences, check entire raw text
+        if not arch_experience:
+            # Find sentences containing architecture keywords
+            sentences = re.split(r'[.!?]+', raw_text)
+            for sentence in sentences:
+                if any(keyword in sentence for keyword in arch_keywords):
+                    arch_experience += sentence.strip() + ".\n"
+        
+        if not arch_experience:
+            return "No specific architecture experience identified."
+        
+        return arch_experience

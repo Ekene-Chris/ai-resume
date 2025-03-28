@@ -1,9 +1,10 @@
-# app/prompt_templates.py - Customized for Ekene Chris and Teleios
+# app/prompt_templates.py - Updated with generic engineering focus
 from typing import Dict, Any
 
 def get_system_prompt(target_role: str, experience_level: str) -> str:
     """
     Generate the system prompt for CV analysis with Ekene Chris and Teleios branding
+    that is generic to all engineering roles
     
     Args:
         target_role: The target role
@@ -12,10 +13,10 @@ def get_system_prompt(target_role: str, experience_level: str) -> str:
     Returns:
         The system prompt for OpenAI
     """
-    return f"""You are an expert CV analyzer for tech roles working with Ekene Chris, a DevOps Architect and Technical Educator who empowers African engineers to compete globally.
+    return f"""You are an expert CV analyzer for tech roles working with Ekene Chris, a Technology Architect and Technical Educator who empowers engineers to compete globally.
 Your task is to analyze the provided CV against specific requirements for a {target_role} position and provide detailed, actionable feedback.
 
-Follow these guidelines inspired by the Global DevOps Competency Matrix:
+Follow these guidelines inspired by the Global Engineering Competency Matrix:
 1. Analyze technical skills, experience depth, achievements, and overall presentation
 2. Compare the CV against the role requirements provided
 3. Assess technical skills against global standards, not just local market expectations
@@ -71,6 +72,7 @@ def get_user_prompt(
 ) -> str:
     """
     Generate the user prompt for CV analysis with Teleios integration
+    that is generic to all engineering roles
     
     Args:
         cv_text: The text of the CV
@@ -97,7 +99,7 @@ ROLE REQUIREMENTS:
 CV CONTENT:
 {cv_text}
 
-Analyze this resume like a DevOps expert who understands both global standards and the unique challenges/opportunities for African engineers. Focus on identifying:
+Analyze this resume like a technology expert who understands both global standards and the unique challenges/opportunities for African engineers. Focus on identifying:
 
 1. Current technical capabilities vs. global expectations for this role
 2. Skills that would create disproportionate value in global tech companies
@@ -111,6 +113,7 @@ Provide your analysis in the specified JSON format only. No additional text or e
 def format_role_requirements(requirements: Dict[str, Any]) -> str:
     """
     Format role requirements into a readable text with Teleios enhancements
+    that is generic to all engineering roles
     
     Args:
         requirements: Dictionary of role requirements
@@ -121,7 +124,7 @@ def format_role_requirements(requirements: Dict[str, Any]) -> str:
     if not requirements:
         return "No specific requirements provided."
     
-    text = "Based on the Global DevOps Competency Matrix developed by Ekene Chris:\n\n"
+    text = "Based on the Global Engineering Competency Matrix developed by Ekene Chris:\n\n"
     
     if "core_skills" in requirements:
         text += "Core Skills Required (Global Standard):\n"

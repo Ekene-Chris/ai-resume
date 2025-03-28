@@ -162,47 +162,6 @@ async def get_analysis_results(analysis_id: str):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error fetching analysis results: {str(e)}")
 
-@router.get("/", response_model=List[AnalysisSummary])
-async def list_analyses():
-    """
-    List all CV analyses.
-    
-    Returns:
-        A list of all analyses with basic information
-    """
-    try:
-        # Query to get just the necessary fields
-        query = """
-        SELECT 
-            c.analysis_id, 
-            c.name, 
-            c.email, 
-            c.target_role, 
-            c.experience_level,
-            c.status,
-            c.created_at
-        FROM c
-        ORDER BY c.created_at DESC
-        """
-        
-        analyses = await cosmos_service.list_analyses(query)
-        
-        return [
-            AnalysisSummary(
-                analysis_id=item["analysis_id"],
-                name=item["name"],
-                email=item["email"],
-                target_role=item["target_role"],
-                experience_level=item["experience_level"],
-                status=item["status"],
-                created_at=item["created_at"]
-            )
-            for item in analyses
-        ]
-        
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error listing analyses: {str(e)}")
-
 @router.get("/{analysis_id}/pdf", response_class=Response)
 async def get_analysis_pdf(analysis_id: str):
     """

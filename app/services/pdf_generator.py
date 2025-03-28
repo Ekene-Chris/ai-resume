@@ -1,4 +1,4 @@
-# app/services/pdf_generator.py - Customized for Ekene Chris brand
+# app/services/pdf_generator.py - Updated to be generic for all engineering roles
 import logging
 import io
 from typing import Dict, Any, BinaryIO
@@ -8,7 +8,7 @@ import os
 logger = logging.getLogger(__name__)
 
 class PDFGenerator:
-    """Service for generating branded PDF reports of resume analyses"""
+    """Service for generating branded PDF reports of resume analyses for all engineering roles"""
     
     def __init__(self):
         """Initialize the PDF generator with Ekene Chris brand styles"""
@@ -236,12 +236,9 @@ class PDFGenerator:
             elements.append(Spacer(1, 12))
             
             # Score interpretation
-            if overall_score >= 85:
+            if overall_score >= 70:
                 score_interpretation = "Excellent match for the role. Your resume demonstrates strong alignment with the requirements."
-                score_color = self.colors['gold']
-            elif overall_score >= 70:
-                score_interpretation = "Good match for the role. Your resume shows good alignment with most key requirements."
-                score_color = colors.green
+                score_color = colors.green  # Changed from gold to green for all scores 70+
             elif overall_score >= 50:
                 score_interpretation = "Moderate match. There are some areas that could be improved to better align with the role."
                 score_color = colors.orange
@@ -281,10 +278,8 @@ class PDFGenerator:
                 suggestions = category.get("suggestions", [])
                 
                 # Create a colored category header based on score
-                if score >= 85:
-                    category_color = self.colors['gold']
-                elif score >= 70:
-                    category_color = colors.green
+                if score >= 70:
+                    category_color = colors.green  
                 elif score >= 50:
                     category_color = colors.orange
                 else:
@@ -415,8 +410,8 @@ class PDFGenerator:
                 
             elements.append(Spacer(1, 24))
             
-            # Matrix Alignment with DevOps Competency Matrix
-            elements.append(Paragraph("Global DevOps Competency Matrix Alignment", heading_style))
+            # Matrix Alignment with Engineering Competency Matrix
+            elements.append(Paragraph("Global Engineering Competency Matrix Alignment", heading_style))
             elements.append(Spacer(1, 6))
             
             matrix_alignment = analysis_data.get("matrix_alignment", {})
@@ -494,7 +489,7 @@ class PDFGenerator:
                 ]
             elif overall_score < 70:
                 next_steps = [
-                    "Enhance descriptions of your most relevant DevOps projects",
+                    "Enhance descriptions of your most relevant technical projects",
                     "Add the missing technical keywords identified in this analysis",
                     "Ensure achievements are quantified with metrics and outcomes",
                     "Join the Teleios community to accelerate your growth in specific gap areas",
@@ -541,7 +536,7 @@ class PDFGenerator:
             elements.append(teleios_table)
             
             teleios_description = [
-                ["Teleios is an exclusive, invitation-only tech learning platform dedicated to producing world-class engineers from Africa. Access advanced DevOps curriculum, real-world projects, and 1:1 mentorship to close your skill gaps and accelerate your tech career."]
+                ["Teleios is an exclusive, invitation-only tech learning platform dedicated to producing world-class engineers from Africa. Access advanced technical curriculum, real-world projects, and 1:1 mentorship to close your skill gaps and accelerate your tech career."]
             ]
             teleios_desc_table = Table(teleios_description, colWidths=[6.5*inch])
             teleios_desc_table.setStyle(TableStyle([
@@ -560,7 +555,7 @@ class PDFGenerator:
             elements.append(Spacer(1, 30))
             
             # Footer with Ekene Chris branding
-            footer_text = "Powered by Ekene Chris | DevOps Architect & Technical Educator"
+            footer_text = "Powered by Ekene Chris | Technology Architect & Technical Educator"
             elements.append(Paragraph(footer_text, footer_style))
             
             # Additional Ekene Chris info
