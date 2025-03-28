@@ -26,7 +26,7 @@ class EmailService:
             'background': "#FFF4E9",  # Linen
             'text': "#070402"  # Deep Black
         }
-        self.logo_url = "https://ekenechris.com/logo.png"  # Update with your actual logo URL
+        self.logo_url = "https://teleios.blob.core.windows.net/profile-picture/secondary logo black.svg"  # Update with your actual logo URL
         self.website_url = "https://ekenechris.com"
         self.teleios_url = "https://jointeleios.com"
 
